@@ -1,8 +1,11 @@
+import { AppShell } from "@/app/app-shell"
+import { AppToastProvider } from "@/shared/ui/app-toast-provider"
+
 export function App() {
   return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="font-medium">Hello World</div>
-    </div>
+    <AppToastProvider>
+      <AppShell />
+    </AppToastProvider>
   )
 }
 
