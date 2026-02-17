@@ -284,6 +284,8 @@ fn save_settings_internal(
 fn task_title(task: &str) -> String {
     if task.starts_with("youtube-download") {
         "Импорт YouTube".to_string()
+    } else if task.starts_with("clip-export") {
+        "Экспорт клипов".to_string()
     } else if task == "ffmpeg" {
         "Установка FFmpeg".to_string()
     } else if task == "ytdlp" {

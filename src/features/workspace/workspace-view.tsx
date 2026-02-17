@@ -117,7 +117,9 @@ export function WorkspaceView({
       return (
         <ExportMode
           controller={controller}
+          projectId={project.id}
           projectName={project.name}
+          sourcePath={project.importedMediaPath ?? null}
           onOpenCoverMode={() => handleModeChange("thumbnails")}
         />
       )

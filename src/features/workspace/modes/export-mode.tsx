@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import {
   DownloadIcon,
+  FolderOpenIcon,
   ImageIcon,
   RefreshCcwIcon,
   SparklesIcon,
@@ -10,32 +12,31 @@ import {
 } from "lucide-react"
 
 import { formatSeconds } from "@/app/mock-data"
-import type { ClipSegment, PlatformPreset, ThumbnailTemplate } from "@/app/types"
+import type {
+  ClipSegment,
+  ExportClipDraft,
+  PlatformPreset,
+  ThumbnailTemplate,
+} from "@/app/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { WorkspaceController } from "@/features/workspace/workspace-controller-types"
+import {
+  exportClipsBatch,
+  openPathInFileManager,
+  pickLocalCoverImageFile,
+  type ClipBatchExportRequest,
+} from "@/shared/tauri/backend"
+import { isTauriRuntime } from "@/shared/tauri/runtime"
 import { useAppToast } from "@/shared/ui/app-toast-provider"
 
 type ExportModeProps = {
   controller: WorkspaceController
+  projectId: string
   projectName: string
+  sourcePath: string | null
   onOpenCoverMode: () => void
-}
-
-type PlatformCoverDraft = {
-  coverMode: "generated" | "custom"
-  templateId: string | null
-  customCoverUrl: string | null
-  customCoverName: string | null
-}
-
-type ClipExportDraft = {
-  title: string
-  description: string
-  tags: string
-  platformIds: string[]
-  platformCovers: Record<string, PlatformCoverDraft>
 }
 
 const tokenize = (value: string) =>
@@ -58,13 +59,13 @@ function makeDefaultDraft(
   presets: PlatformPreset[],
   defaultPlatformIds: string[],
   defaultTemplateId: string | null,
-): ClipExportDraft {
-  const platformCovers: Record<string, PlatformCoverDraft> = {}
+): ExportClipDraft {
+  const platformCovers: ExportClipDraft["platformCovers"] = {}
   for (const preset of presets) {
     platformCovers[preset.id] = {
       coverMode: "generated",
       templateId: defaultTemplateId,
-      customCoverUrl: null,
+      customCoverPath: null,
       customCoverName: null,
     }
   }
@@ -89,28 +90,47 @@ function resolveTemplate(
 }
 
 function isCoverReady(
-  cover: PlatformCoverDraft | undefined,
+  cover: ExportClipDraft["platformCovers"][string] | undefined,
   templates: ThumbnailTemplate[],
 ): boolean {
   if (!cover) {
     return false
   }
   if (cover.coverMode === "custom") {
-    return Boolean(cover.customCoverUrl)
+    return Boolean(cover.customCoverPath)
   }
   return Boolean(resolveTemplate(templates, cover.templateId))
 }
 
+function toCoverPreviewUrl(
+  coverPath: string | null,
+  webBlobMap: Record<string, string>,
+): string | null {
+  if (!coverPath) {
+    return null
+  }
+  if (coverPath.startsWith("blob:")) {
+    return webBlobMap[coverPath] ?? coverPath
+  }
+  if (isTauriRuntime()) {
+    return convertFileSrc(coverPath)
+  }
+  return coverPath
+}
+
 export default function ExportMode({
   controller,
+  projectId,
   projectName,
+  sourcePath,
   onOpenCoverMode,
 }: ExportModeProps) {
-  const { clips, actions, activeClipId, ai, transcript } = controller
+  const { clips, actions, activeClipId, ai, transcript, exports } = controller
   const { pushToast } = useAppToast()
-  const [drafts, setDrafts] = useState<Record<string, ClipExportDraft>>({})
   const uploadInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const objectUrlsRef = useRef<Set<string>>(new Set())
+  const [isExporting, setIsExporting] = useState(false)
+  const [webBlobMap, setWebBlobMap] = useState<Record<string, string>>({})
 
   useEffect(() => {
     const objectUrls = objectUrlsRef.current
@@ -153,7 +173,7 @@ export default function ExportMode({
   )
 
   const buildClipDraft = useCallback(
-    (clip: ClipSegment, existing?: ClipExportDraft): ClipExportDraft => {
+    (clip: ClipSegment, existing?: ExportClipDraft): ExportClipDraft => {
       if (!existing) {
         return makeDefaultDraft(clip, ai.platformPresets, defaultPlatformIds, defaultTemplateId)
       }
@@ -168,11 +188,11 @@ export default function ExportMode({
         }
         merged.platformCovers[preset.id] = {
           coverMode:
-            previousCover.coverMode === "custom" && previousCover.customCoverUrl
+            previousCover.coverMode === "custom" && previousCover.customCoverPath
               ? "custom"
               : "generated",
           templateId: previousCover.templateId || merged.platformCovers[preset.id]?.templateId || null,
-          customCoverUrl: previousCover.customCoverUrl || null,
+          customCoverPath: previousCover.customCoverPath || null,
           customCoverName: previousCover.customCoverName || null,
         }
       }
@@ -189,12 +209,12 @@ export default function ExportMode({
   )
 
   const draftsByClip = useMemo(() => {
-    const next: Record<string, ClipExportDraft> = {}
+    const next: Record<string, ExportClipDraft> = {}
     for (const clip of clips) {
-      next[clip.id] = buildClipDraft(clip, drafts[clip.id])
+      next[clip.id] = buildClipDraft(clip, exports.clipDrafts[clip.id])
     }
     return next
-  }, [buildClipDraft, clips, drafts])
+  }, [buildClipDraft, clips, exports.clipDrafts])
 
   const activeClip = useMemo(
     () => clips.find((clip) => clip.id === activeClipId) ?? clips[0] ?? null,
@@ -202,18 +222,40 @@ export default function ExportMode({
   )
   const activeDraft = activeClip ? draftsByClip[activeClip.id] : null
 
-  const updateDraft = (clipId: string, updater: (draft: ClipExportDraft) => ClipExportDraft) => {
-    setDrafts((previous) => {
-      const clip = clipById.get(clipId)
-      if (!clip) {
-        return previous
+  useEffect(() => {
+    const existingIds = new Set(clips.map((clip) => clip.id))
+    const currentDrafts = exports.clipDrafts
+    let needsSync = false
+    for (const clip of clips) {
+      if (!currentDrafts[clip.id]) {
+        needsSync = true
+        break
       }
-      const base = buildClipDraft(clip, previous[clipId])
-      return {
-        ...previous,
-        [clipId]: updater(base),
+    }
+    if (!needsSync) {
+      for (const clipId of Object.keys(currentDrafts)) {
+        if (!existingIds.has(clipId)) {
+          needsSync = true
+          break
+        }
       }
-    })
+    }
+    if (!needsSync) {
+      return
+    }
+    actions.setExportClipDrafts(draftsByClip)
+  }, [actions, clips, draftsByClip, exports.clipDrafts])
+
+  const updateDraft = (clipId: string, updater: (draft: ExportClipDraft) => ExportClipDraft) => {
+    const clip = clipById.get(clipId)
+    if (!clip) {
+      return
+    }
+    const next = {
+      ...exports.clipDrafts,
+      [clipId]: updater(buildClipDraft(clip, exports.clipDrafts[clipId])),
+    }
+    actions.setExportClipDrafts(next)
   }
 
   const updateMetadataField = (
@@ -259,18 +301,44 @@ export default function ExportMode({
             ...(current ?? {
               coverMode: "generated",
               templateId: nextTemplateId,
-              customCoverUrl: null,
+              customCoverPath: null,
               customCoverName: null,
             }),
             coverMode: "generated",
             templateId: nextTemplateId,
+            customCoverPath: null,
+            customCoverName: null,
           },
         },
       }
     })
   }
 
-  const openUploadPicker = (clipId: string, presetId: string) => {
+  const openUploadPicker = async (clipId: string, presetId: string) => {
+    if (isTauriRuntime()) {
+      const selectedPath = await pickLocalCoverImageFile()
+      if (!selectedPath) {
+        return
+      }
+      updateDraft(clipId, (draft) => ({
+        ...draft,
+        platformCovers: {
+          ...draft.platformCovers,
+          [presetId]: {
+            ...(draft.platformCovers[presetId] ?? {
+              coverMode: "generated",
+              templateId: defaultTemplateId,
+              customCoverPath: null,
+              customCoverName: null,
+            }),
+            coverMode: "custom",
+            customCoverPath: selectedPath,
+            customCoverName: selectedPath.split(/[\\/]/).pop() ?? "cover",
+          },
+        },
+      }))
+      return
+    }
     const key = `${clipId}:${presetId}`
     uploadInputRefs.current[key]?.click()
   }
@@ -278,9 +346,17 @@ export default function ExportMode({
   const removeCustomCover = (clipId: string, presetId: string) => {
     const draft = draftsByClip[clipId]
     const current = draft?.platformCovers[presetId]
-    if (current?.customCoverUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(current.customCoverUrl)
-      objectUrlsRef.current.delete(current.customCoverUrl)
+    if (current?.customCoverPath?.startsWith("blob:")) {
+      const blobUrl = webBlobMap[current.customCoverPath]
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl)
+        objectUrlsRef.current.delete(blobUrl)
+      }
+      setWebBlobMap((previous) => {
+        const next = { ...previous }
+        delete next[current.customCoverPath!]
+        return next
+      })
     }
     updateDraft(clipId, (prev) => ({
       ...prev,
@@ -290,28 +366,26 @@ export default function ExportMode({
           ...(prev.platformCovers[presetId] ?? {
             coverMode: "generated",
             templateId: defaultTemplateId,
-            customCoverUrl: null,
+            customCoverPath: null,
             customCoverName: null,
           }),
           coverMode: "generated",
-          customCoverUrl: null,
+          customCoverPath: null,
           customCoverName: null,
         },
       },
     }))
   }
 
-  const onUploadCustomCover = (clipId: string, presetId: string, file: File | null) => {
+  const onUploadCustomCoverWeb = (clipId: string, presetId: string, file: File | null) => {
     if (!file) {
       return
     }
-    const previous = draftsByClip[clipId]?.platformCovers[presetId]
-    if (previous?.customCoverUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(previous.customCoverUrl)
-      objectUrlsRef.current.delete(previous.customCoverUrl)
-    }
-    const nextUrl = URL.createObjectURL(file)
-    objectUrlsRef.current.add(nextUrl)
+    const blobUrl = URL.createObjectURL(file)
+    const virtualPath = `blob:${Math.random().toString(36).slice(2, 10)}`
+    objectUrlsRef.current.add(blobUrl)
+    setWebBlobMap((previous) => ({ ...previous, [virtualPath]: blobUrl }))
+
     updateDraft(clipId, (draft) => ({
       ...draft,
       platformCovers: {
@@ -320,11 +394,11 @@ export default function ExportMode({
           ...(draft.platformCovers[presetId] ?? {
             coverMode: "generated",
             templateId: defaultTemplateId,
-            customCoverUrl: null,
+            customCoverPath: null,
             customCoverName: null,
           }),
           coverMode: "custom",
-          customCoverUrl: nextUrl,
+          customCoverPath: virtualPath,
           customCoverName: file.name,
         },
       },
@@ -354,22 +428,107 @@ export default function ExportMode({
     updateMetadataField(clip.id, "tags", unique.map((token) => `#${token}`).join(" "))
   }
 
+  const buildBatchRequest = (targetClipIds: string[]): ClipBatchExportRequest | null => {
+    const trimmedSourcePath = sourcePath?.trim() ?? ""
+    if (!trimmedSourcePath) {
+      pushToast({
+        title: "Нет исходного видео",
+        description: "Для экспорта нужен импортированный файл проекта.",
+        tone: "error",
+        durationMs: 3600,
+      })
+      return null
+    }
+
+    const tasks: ClipBatchExportRequest["tasks"] = []
+    for (const clipId of targetClipIds) {
+      const clip = clipById.get(clipId)
+      const draft = draftsByClip[clipId]
+      if (!clip || !draft) {
+        continue
+      }
+      for (const platformId of draft.platformIds) {
+        const preset = platformById.get(platformId)
+        if (!preset) {
+          continue
+        }
+        const cover = draft.platformCovers[platformId]
+        const coverPath =
+          cover?.coverMode === "custom" &&
+          cover.customCoverPath &&
+          !cover.customCoverPath.startsWith("blob:")
+            ? cover.customCoverPath
+            : null
+        tasks.push({
+          clipId: clip.id,
+          platformId: preset.id,
+          aspect: preset.aspect,
+          start: clip.start,
+          end: clip.end,
+          title: draft.title.trim() || clip.title,
+          description: draft.description.trim() || null,
+          tags: draft.tags.trim() || null,
+          coverPath,
+        })
+      }
+    }
+    if (tasks.length === 0) {
+      pushToast({
+        title: "Нечего экспортировать",
+        description: "Выберите платформы хотя бы для одного клипа.",
+        tone: "info",
+        durationMs: 2800,
+      })
+      return null
+    }
+
+    return {
+      projectId,
+      projectName,
+      sourcePath: trimmedSourcePath,
+      taskId: `clip-export:${projectId}`,
+      tasks,
+    }
+  }
+
+  const runExport = async (targetClipIds: string[]) => {
+    const request = buildBatchRequest(targetClipIds)
+    if (!request) {
+      return
+    }
+    setIsExporting(true)
+    try {
+      const result = await exportClipsBatch(request)
+      pushToast({
+        title: "Экспорт завершен",
+        description: `Готово файлов: ${result.exportedCount}. Открыть папку экспорта?`,
+        tone: "success",
+        durationMs: 3400,
+      })
+      if (result.projectDir) {
+        void openPathInFileManager(result.projectDir).catch(() => {})
+      }
+    } catch (error) {
+      pushToast({
+        title: "Ошибка экспорта",
+        description: error instanceof Error ? error.message : "Не удалось выполнить экспорт.",
+        tone: "error",
+        durationMs: 4200,
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const exportActiveClip = () => {
     if (!activeClip || !activeDraft) {
       return
     }
-    const selectedPresets = ai.platformPresets.filter((preset) =>
-      activeDraft.platformIds.includes(preset.id),
-    )
-    const readyCount = selectedPresets.filter((preset) =>
-      isCoverReady(activeDraft.platformCovers[preset.id], ai.thumbnailTemplates),
-    ).length
-    pushToast({
-      title: "Экспорт поставлен в очередь",
-      description: `«${activeClip.title}» · платформ: ${selectedPresets.length}, обложки готовы: ${readyCount}/${selectedPresets.length}`,
-      tone: "success",
-      durationMs: 3200,
-    })
+    void runExport([activeClip.id])
+  }
+
+  const exportAllClips = () => {
+    void runExport(clips.map((clip) => clip.id))
   }
 
   if (clips.length === 0) {
@@ -384,10 +543,23 @@ export default function ExportMode({
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-x-hidden overflow-y-auto pr-1 pb-2">
       <div className="rounded-xl border border-white/10 bg-black/24 px-3 py-2">
-        <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Экспорт клипов</p>
-        <p className="mt-1 text-xs text-zinc-400">
-          Для каждого клипа настройте метаданные, платформы и отдельные обложки по каждой платформе.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Экспорт клипов</p>
+            <p className="mt-1 text-xs text-zinc-400">
+              Для каждого клипа настройте метаданные, платформы и отдельные обложки по каждой платформе.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            className="bg-zinc-100 text-zinc-950 hover:bg-zinc-100/90"
+            onClick={exportAllClips}
+            disabled={isExporting || !sourcePath}
+          >
+            <FolderOpenIcon className="size-4" />
+            Экспортировать всё
+          </Button>
+        </div>
       </div>
 
       <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(250px,0.7fr)_minmax(0,1fr)]">
@@ -451,6 +623,7 @@ export default function ExportMode({
                     size="sm"
                     className="bg-zinc-100 text-zinc-950 hover:bg-zinc-100/90"
                     onClick={exportActiveClip}
+                    disabled={isExporting || !sourcePath}
                   >
                     <DownloadIcon className="size-4" />
                     Экспортировать
@@ -564,6 +737,7 @@ export default function ExportMode({
                   const previewSubtitle = template?.overlaySubtitle || projectName
                   const uploadKey = `${activeClip.id}:${platformId}`
                   const ratio = parseAspectRatio(preset.aspect)
+                  const coverPreview = toCoverPreviewUrl(cover?.customCoverPath ?? null, webBlobMap)
 
                   return (
                     <article
@@ -581,9 +755,9 @@ export default function ExportMode({
                         className="relative overflow-hidden rounded-md border border-white/12"
                         style={{ aspectRatio: ratio }}
                       >
-                        {cover?.coverMode === "custom" && cover.customCoverUrl ? (
+                        {cover?.coverMode === "custom" && coverPreview ? (
                           <img
-                            src={cover.customCoverUrl}
+                            src={coverPreview}
                             alt={`Обложка ${preset.name}`}
                             className="h-full w-full object-cover"
                           />
@@ -617,7 +791,7 @@ export default function ExportMode({
                           size="xs"
                           variant="outline"
                           className="border-white/14 bg-transparent text-zinc-300 hover:bg-white/8"
-                          onClick={() => openUploadPicker(activeClip.id, platformId)}
+                          onClick={() => void openUploadPicker(activeClip.id, platformId)}
                         >
                           <UploadIcon className="size-3.5" />
                           Поставить свою
@@ -632,18 +806,20 @@ export default function ExportMode({
                             Сброс
                           </Button>
                         ) : null}
-                        <input
-                          ref={(node) => {
-                            uploadInputRefs.current[uploadKey] = node
-                          }}
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={(event) => {
-                            onUploadCustomCover(activeClip.id, platformId, event.target.files?.[0] ?? null)
-                            event.currentTarget.value = ""
-                          }}
-                        />
+                        {!isTauriRuntime() ? (
+                          <input
+                            ref={(node) => {
+                              uploadInputRefs.current[uploadKey] = node
+                            }}
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            className="hidden"
+                            onChange={(event) => {
+                              onUploadCustomCoverWeb(activeClip.id, platformId, event.target.files?.[0] ?? null)
+                              event.currentTarget.value = ""
+                            }}
+                          />
+                        ) : null}
                       </div>
 
                       <p className="mt-1.5 flex items-center gap-1 text-[11px] text-zinc-500">
