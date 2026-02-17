@@ -16,6 +16,10 @@ type AnalyticsOverviewPanelProps = {
   sourceLabel?: string
   sourceUploader?: string
   sourceDurationSeconds?: number
+  sourceViewCount?: number
+  sourceLikeCount?: number
+  sourceCommentCount?: number
+  sourceChannelFollowers?: number
 }
 
 type StatTileProps = {
@@ -46,6 +50,10 @@ export function AnalyticsOverviewPanel({
   sourceLabel,
   sourceUploader,
   sourceDurationSeconds,
+  sourceViewCount,
+  sourceLikeCount,
+  sourceCommentCount,
+  sourceChannelFollowers,
 }: AnalyticsOverviewPanelProps) {
   const completion = words.length > 0 ? Math.min(100, Math.round((visibleWordCount / words.length) * 100)) : 0
 
@@ -83,6 +91,15 @@ export function AnalyticsOverviewPanel({
         <StatTile icon={SigmaIcon} label="Семантические блоки" value={String(semanticBlocks.length)} />
         <StatTile icon={BarChart3Icon} label="Готовые клипы" value={String(clipsCount)} />
       </div>
+
+      {(sourceViewCount || sourceLikeCount || sourceCommentCount || sourceChannelFollowers) ? (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <StatTile icon={BarChart3Icon} label="Просмотры" value={String(sourceViewCount ?? 0)} />
+          <StatTile icon={BarChart3Icon} label="Лайки" value={String(sourceLikeCount ?? 0)} />
+          <StatTile icon={BarChart3Icon} label="Комментарии" value={String(sourceCommentCount ?? 0)} />
+          <StatTile icon={BarChart3Icon} label="Подписчики канала" value={String(sourceChannelFollowers ?? 0)} />
+        </div>
+      ) : null}
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {[

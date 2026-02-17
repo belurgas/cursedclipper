@@ -39,13 +39,15 @@ pub fn run() {
             tooling::get_runtime_tools_status,
             tooling::pick_projects_root_dir,
             tooling::pick_local_video_file,
+            tooling::pick_local_cover_image_file,
             tooling::open_projects_root_dir,
             tooling::open_path_in_file_manager,
             tooling::stage_local_video_file,
             tooling::install_or_update_managed_ytdlp,
             tooling::install_or_update_managed_ffmpeg,
             tooling::probe_youtube_formats,
-            tooling::download_youtube_media
+            tooling::download_youtube_media,
+            tooling::export_clips_batch
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

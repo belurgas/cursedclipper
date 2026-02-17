@@ -34,6 +34,10 @@ export default function InsightsMode({ controller, project }: InsightsModeProps)
           sourceUploader={project.sourceUploader}
           sourceDurationSeconds={project.sourceDurationSeconds}
           sourceLabel={project.sourceLabel}
+          sourceViewCount={project.sourceViewCount}
+          sourceLikeCount={project.sourceLikeCount}
+          sourceCommentCount={project.sourceCommentCount}
+          sourceChannelFollowers={project.sourceChannelFollowers}
         />
       </div>
 

@@ -219,6 +219,7 @@ export function AppShell() {
 
       if (isFinal) {
         const youtubeTaskMatch = event.task.match(/^youtube-download:(.+)$/)
+        const clipExportTaskMatch = event.task.match(/^clip-export:(.+)$/)
         appendNotification({
           title,
           description,
@@ -229,6 +230,12 @@ export function AppShell() {
                 projectId: youtubeTaskMatch[1],
                 mode: event.status === "success" ? "video" : "clips",
               }
+            : clipExportTaskMatch?.[1]
+              ? {
+                  kind: "workspace",
+                  projectId: clipExportTaskMatch[1],
+                  mode: "export",
+                }
             : event.task === "ffmpeg" || event.task === "ytdlp"
               ? { kind: "section", section: "settings" }
               : undefined,
@@ -285,6 +292,13 @@ export function AppShell() {
         sourceUploader: patch.sourceUploader,
         sourceDurationSeconds: patch.sourceDurationSeconds,
         sourceThumbnail: patch.sourceThumbnail,
+        sourceViewCount: patch.sourceViewCount,
+        sourceLikeCount: patch.sourceLikeCount,
+        sourceCommentCount: patch.sourceCommentCount,
+        sourceUploadDate: patch.sourceUploadDate,
+        sourceChannelId: patch.sourceChannelId,
+        sourceChannelUrl: patch.sourceChannelUrl,
+        sourceChannelFollowers: patch.sourceChannelFollowers,
         importedMediaPath: patch.importedMediaPath,
         updatedAt: patch.updatedAt,
       })

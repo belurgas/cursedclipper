@@ -268,6 +268,13 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
         sourceUploader?: string
         sourceDurationSeconds?: number
         sourceThumbnail?: string
+        sourceViewCount?: number
+        sourceLikeCount?: number
+        sourceCommentCount?: number
+        sourceUploadDate?: string
+        sourceChannelId?: string
+        sourceChannelUrl?: string
+        sourceChannelFollowers?: number
         importedMediaPath?: string
       }
 
@@ -303,6 +310,13 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
             ? Math.max(0, Math.round(probeResult.duration))
             : undefined,
           sourceThumbnail: probeResult?.thumbnail ?? undefined,
+          sourceViewCount: probeResult?.viewCount ?? undefined,
+          sourceLikeCount: probeResult?.likeCount ?? undefined,
+          sourceCommentCount: probeResult?.commentCount ?? undefined,
+          sourceUploadDate: probeResult?.uploadDate ?? undefined,
+          sourceChannelId: probeResult?.channelId ?? undefined,
+          sourceChannelUrl: probeResult?.channelUrl ?? undefined,
+          sourceChannelFollowers: probeResult?.channelFollowers ?? undefined,
         }
       }
 
@@ -338,6 +352,13 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
               sourceDurationSeconds: resolvedDuration,
               sourceUploader: probeResult?.uploader ?? undefined,
               sourceThumbnail: probeResult?.thumbnail ?? undefined,
+              sourceViewCount: probeResult?.viewCount ?? undefined,
+              sourceLikeCount: probeResult?.likeCount ?? undefined,
+              sourceCommentCount: probeResult?.commentCount ?? undefined,
+              sourceUploadDate: probeResult?.uploadDate ?? undefined,
+              sourceChannelId: probeResult?.channelId ?? undefined,
+              sourceChannelUrl: probeResult?.channelUrl ?? undefined,
+              sourceChannelFollowers: probeResult?.channelFollowers ?? undefined,
             })
           })
           .catch((error) => {

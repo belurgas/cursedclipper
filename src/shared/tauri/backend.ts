@@ -536,6 +536,13 @@ export async function pickLocalVideoFile(): Promise<string | null> {
   return invokeTauri<string | null>("pick_local_video_file")
 }
 
+export async function pickLocalCoverImageFile(): Promise<string | null> {
+  if (!isTauriRuntime()) {
+    return null
+  }
+  return invokeTauri<string | null>("pick_local_cover_image_file")
+}
+
 export async function stageLocalVideoFile(
   sourcePath: string,
   projectName?: string,
@@ -666,6 +673,13 @@ export async function probeYoutubeFormats(
       uploader: "ClipForge Demo",
       duration: 192,
       thumbnail: null,
+      viewCount: 42_000,
+      likeCount: 2_400,
+      commentCount: 180,
+      uploadDate: "20260120",
+      channelId: "demo-channel-id",
+      channelUrl: "https://youtube.com/@clipforge-demo",
+      channelFollowers: 120_000,
       formats: [
         {
           id: "22",

@@ -4,6 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core"
 import type {
   ClipSegment,
   ContentPlanIdea,
+  ExportClipDraft,
   HookCandidate,
   PlatformPreset,
   SemanticBlock,
@@ -129,6 +130,7 @@ export function useWorkspaceController(projectId: string, projectName: string) {
   )
   const [thumbnailTemplates, setThumbnailTemplates] = useState<ThumbnailTemplate[]>([])
   const [activeThumbnailTemplateId, setActiveThumbnailTemplateId] = useState<string>("")
+  const [exportClipDrafts, setExportClipDrafts] = useState<Record<string, ExportClipDraft>>({})
 
   const visibleWords = useMemo(
     () => words.slice(0, visibleWordCount),
@@ -227,6 +229,7 @@ export function useWorkspaceController(projectId: string, projectName: string) {
     setSeriesSegments([])
     setThumbnailTemplates([])
     setActiveThumbnailTemplateId("")
+    setExportClipDrafts({})
     setActiveSubtitlePresetId((current) => current || subtitlePresetOptions[0]?.id || "")
     setSelectedPlatformPresetIds(defaultPlatformSelection)
   }, [subtitlePresetOptions])
@@ -659,6 +662,9 @@ export function useWorkspaceController(projectId: string, projectName: string) {
         thumbnailTemplates,
         activeThumbnailTemplateId,
       },
+      exportState: {
+        clipDrafts: exportClipDrafts,
+      },
     }
   }, [
     activeClipId,
@@ -678,6 +684,7 @@ export function useWorkspaceController(projectId: string, projectName: string) {
     transcriptBlocks,
     videoName,
     videoUrl,
+    exportClipDrafts,
     viralInsights,
     viralScore,
     visibleWordCount,
@@ -760,6 +767,7 @@ export function useWorkspaceController(projectId: string, projectName: string) {
       setActiveThumbnailTemplateId(
         state.ai?.activeThumbnailTemplateId || restoredTemplates[0]?.id || "",
       )
+      setExportClipDrafts(state.exportState?.clipDrafts ?? {})
 
       setIsTranscribing(false)
       setIsScoring(false)
@@ -806,6 +814,9 @@ export function useWorkspaceController(projectId: string, projectName: string) {
     clips,
     activeClipId,
     semanticBlocks,
+    exports: {
+      clipDrafts: exportClipDrafts,
+    },
     ai: {
       isScoring,
       isHooking,
@@ -848,6 +859,7 @@ export function useWorkspaceController(projectId: string, projectName: string) {
       togglePlatformPreset,
       setActiveThumbnailTemplateId,
       updateThumbnailTemplate,
+      setExportClipDrafts,
       exportSessionState,
       hydrateSessionState,
     },

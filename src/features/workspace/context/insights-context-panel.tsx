@@ -23,9 +23,14 @@ export default function InsightsContextPanel({ controller, project }: InsightsCo
         <div className="mt-2 space-y-1.5 text-xs text-zinc-400">
           <p>Видео: {media.videoName || "не загружено"}</p>
           {project.sourceUploader ? <p>Канал: {project.sourceUploader}</p> : null}
+          {project.sourceChannelFollowers ? <p>Подписчики: {project.sourceChannelFollowers}</p> : null}
           {project.sourceDurationSeconds ? (
             <p>Источник: ~{project.sourceDurationSeconds} с</p>
           ) : null}
+          {project.sourceUploadDate ? <p>Дата публикации: {project.sourceUploadDate}</p> : null}
+          {project.sourceViewCount ? <p>Просмотры: {project.sourceViewCount}</p> : null}
+          {project.sourceLikeCount ? <p>Лайки: {project.sourceLikeCount}</p> : null}
+          {project.sourceCommentCount ? <p>Комментарии: {project.sourceCommentCount}</p> : null}
           <p>Слов: {transcript.words.length}</p>
           <p>Клипов: {clips.length}</p>
         </div>
