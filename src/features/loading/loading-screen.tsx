@@ -30,7 +30,7 @@ export function LoadingScreen() {
         className="relative z-10 text-center"
       >
         <p className="mb-3 text-xs tracking-[0.2em] text-zinc-500 uppercase">
-          ClipForge Studio
+          Cursed Clipper
         </p>
         <h1 className="text-4xl font-semibold tracking-tight text-zinc-100 md:text-5xl">
           <ShinyText text="Формируем рабочее пространство" speed={3.6} />

@@ -40,6 +40,13 @@ function StatTile({ icon: Icon, label, value }: StatTileProps) {
   )
 }
 
+const formatMetric = (value?: number) => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "0"
+  }
+  return new Intl.NumberFormat("ru-RU").format(Math.max(0, Math.round(value)))
+}
+
 export function AnalyticsOverviewPanel({
   videoName,
   duration,
@@ -56,6 +63,9 @@ export function AnalyticsOverviewPanel({
   sourceChannelFollowers,
 }: AnalyticsOverviewPanelProps) {
   const completion = words.length > 0 ? Math.min(100, Math.round((visibleWordCount / words.length) * 100)) : 0
+  const hasSourceSummary = Boolean(sourceLabel || sourceUploader) || typeof sourceDurationSeconds === "number"
+  const hasSourceMetrics = [sourceViewCount, sourceLikeCount, sourceCommentCount, sourceChannelFollowers]
+    .some((value) => typeof value === "number")
 
   const semanticStats = {
     hook: semanticBlocks.filter((block) => block.type === "hook").length,
@@ -73,10 +83,10 @@ export function AnalyticsOverviewPanel({
           <p className="mt-0.5 text-xs text-zinc-500 break-words">
             Структурная метрика контента, транскрипта и монтажного потенциала.
           </p>
-          {(sourceLabel || sourceUploader || sourceDurationSeconds) ? (
+          {hasSourceSummary ? (
             <p className="mt-1 text-[11px] text-zinc-500 break-words">
               Источник: {sourceLabel || "YouTube"}{sourceUploader ? ` • ${sourceUploader}` : ""}
-              {sourceDurationSeconds ? ` • ~${sourceDurationSeconds} с` : ""}
+              {typeof sourceDurationSeconds === "number" ? ` • ~${sourceDurationSeconds} с` : ""}
             </p>
           ) : null}
         </div>
@@ -92,12 +102,12 @@ export function AnalyticsOverviewPanel({
         <StatTile icon={BarChart3Icon} label="Готовые клипы" value={String(clipsCount)} />
       </div>
 
-      {(sourceViewCount || sourceLikeCount || sourceCommentCount || sourceChannelFollowers) ? (
+      {hasSourceMetrics ? (
         <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          <StatTile icon={BarChart3Icon} label="Просмотры" value={String(sourceViewCount ?? 0)} />
-          <StatTile icon={BarChart3Icon} label="Лайки" value={String(sourceLikeCount ?? 0)} />
-          <StatTile icon={BarChart3Icon} label="Комментарии" value={String(sourceCommentCount ?? 0)} />
-          <StatTile icon={BarChart3Icon} label="Подписчики канала" value={String(sourceChannelFollowers ?? 0)} />
+          <StatTile icon={BarChart3Icon} label="Просмотры" value={formatMetric(sourceViewCount)} />
+          <StatTile icon={BarChart3Icon} label="Лайки" value={formatMetric(sourceLikeCount)} />
+          <StatTile icon={BarChart3Icon} label="Комментарии" value={formatMetric(sourceCommentCount)} />
+          <StatTile icon={BarChart3Icon} label="Подписчики канала" value={formatMetric(sourceChannelFollowers)} />
         </div>
       ) : null}
 

@@ -33,7 +33,7 @@ export function AccountView({ onLogout }: AccountViewProps) {
           <div className="grid gap-2 text-sm">
             <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
               <p className="text-zinc-400">Эл. почта</p>
-              <p className="text-zinc-200">kali@clipforge.ai</p>
+              <p className="text-zinc-200">kali@cursedclipper.ai</p>
             </div>
             <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
               <p className="text-zinc-400">Часовой пояс</p>

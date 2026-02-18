@@ -8,7 +8,10 @@ use tauri::{AppHandle, Manager};
 
 const SCRIPT: &str = "модель уже определила самые сильные хуки в этом интервью и ранжировала их по эмоциональной ясности и потенциалу удержания. теперь можно убрать паузы выровнять ритм и подготовить версии для reels shorts telegram и вертикальных публикаций. пока идет анализ зафиксируйте ключевые слова отметьте смысловые повороты и сохраните пики энергии спикера. каждое слово в этой панели привязано ко времени поэтому клипы можно собирать точно еще до финального рендера.";
 const BLOCK_TYPE_CYCLE: [&str; 4] = ["hook", "story", "proof", "cta"];
-const DATABASE_FILE_NAME: &str = "clipforge-state.sqlite3";
+const DATABASE_FILE_NAME: &str = "cursed-clipper-state.sqlite3";
+// Keep legacy file name so existing installs continue using previous DB.
+const LEGACY_DATABASE_FILE_NAME: &str = "clipforge-state.sqlite3";
+const LEGACY_APP_IDENTIFIER: &str = "com.clipforge.studio";
 static DB_BOOTSTRAP_STATE: OnceLock<Mutex<bool>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,7 +265,23 @@ fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app_data_dir(app)?.join(DATABASE_FILE_NAME))
+    let app_dir = app_data_dir(app)?;
+    let next_path = app_dir.join(DATABASE_FILE_NAME);
+    if next_path.exists() {
+        return Ok(next_path);
+    }
+    let legacy_path_in_new_dir = app_dir.join(LEGACY_DATABASE_FILE_NAME);
+    if legacy_path_in_new_dir.exists() {
+        return Ok(legacy_path_in_new_dir);
+    }
+    if let Some(parent_dir) = app_dir.parent() {
+        let legacy_app_dir = parent_dir.join(LEGACY_APP_IDENTIFIER);
+        let legacy_path = legacy_app_dir.join(LEGACY_DATABASE_FILE_NAME);
+        if legacy_path.exists() {
+            return Ok(legacy_path);
+        }
+    }
+    Ok(next_path)
 }
 
 fn default_seed_projects() -> Vec<Project> {
@@ -1142,7 +1161,7 @@ fn build_thumbnail_templates(project_name: &str, duration: f64) -> Vec<Thumbnail
             id: "th_3".into(),
             name: "Уверенный кадр".into(),
             overlay_title: "Сделайте это до публикации".into(),
-            overlay_subtitle: "Интеллект ClipForge".into(),
+            overlay_subtitle: "Интеллект Cursed Clipper".into(),
             focus_time: (duration * 0.45).max(5.0),
             palette: ["#f4f7ff".into(), "#6f7d96".into()],
         },
@@ -1424,7 +1443,7 @@ pub fn save_project_workspace_state(
     state_json: String,
 ) -> Result<(), String> {
     let safe_project_id = sanitize_text(project_id, 3, 120, "Идентификатор проекта")?;
-    if state_json.len() > 8_000_000 {
+    if state_json.len() > 32_000_000 {
         return Err("Состояние проекта слишком большое для сохранения.".to_string());
     }
 

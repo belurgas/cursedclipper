@@ -164,7 +164,7 @@ export function AppChrome({
       <div className="mx-auto flex h-full w-full items-center justify-between px-3 lg:px-5">
         <div className="flex flex-1 items-center" data-tauri-drag-region>
           <p className="text-[11px] font-medium tracking-[0.2em] text-zinc-500 uppercase">
-            CLIPFORGE STUDIO
+            CURSED CLIPPER
           </p>
         </div>
 
@@ -194,7 +194,7 @@ export function AppChrome({
             <DropdownMenuContent
               align="end"
               sideOffset={8}
-              className="z-[330] w-[360px] rounded-xl border border-white/12 bg-[#0b0d12]/94 p-0 text-zinc-100 shadow-[0_20px_48px_-24px_rgba(0,0,0,0.86)] backdrop-blur-xl"
+              className="z-[330] w-[360px] overflow-hidden rounded-xl border border-white/12 bg-[#0b0d12]/94 p-0 text-zinc-100 shadow-[0_20px_48px_-24px_rgba(0,0,0,0.86)] backdrop-blur-xl"
             >
               <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
                 <p className="text-xs tracking-[0.14em] text-zinc-400 uppercase">
@@ -210,7 +210,7 @@ export function AppChrome({
                 </button>
               </div>
 
-              <div className="max-h-[360px] overflow-y-auto p-2">
+              <div className="max-h-[360px] overflow-x-hidden overflow-y-auto p-2">
                 {notifications.length === 0 ? (
                   <div className="rounded-lg border border-white/10 bg-black/24 px-3 py-3 text-xs text-zinc-400">
                     Пока нет событий.
@@ -226,7 +226,7 @@ export function AppChrome({
                           setNotificationsOpen(false)
                         }}
                         className={[
-                          "w-full rounded-lg border px-2.5 py-2 text-left transition",
+                          "w-full max-w-full overflow-hidden rounded-lg border px-2.5 py-2 text-left transition",
                           item.unread
                             ? "border-zinc-200/20 bg-zinc-100/10"
                             : "border-white/10 bg-white/5 hover:bg-white/8",
@@ -240,7 +240,9 @@ export function AppChrome({
                           <span className="shrink-0 text-[10px] text-zinc-500">{item.timestamp}</span>
                         </div>
                         {item.description ? (
-                          <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">{item.description}</p>
+                          <p className="mt-1 whitespace-normal break-all text-[11px] leading-relaxed text-zinc-400">
+                            {item.description}
+                          </p>
                         ) : null}
                       </button>
                     ))}

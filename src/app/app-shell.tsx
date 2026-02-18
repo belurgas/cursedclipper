@@ -42,6 +42,38 @@ const formatNotificationTime = (date: Date) =>
     minute: "2-digit",
   }).format(date)
 
+const normalizeWindowsExtendedPath = (value: string) => {
+  if (value.startsWith("\\\\?\\UNC\\")) {
+    return `\\\\${value.slice("\\\\?\\UNC\\".length)}`
+  }
+  if (value.startsWith("\\\\?\\")) {
+    return value.slice("\\\\?\\".length)
+  }
+  return value
+}
+
+const isLikelyFilesystemPath = (value: string) =>
+  /^[a-zA-Z]:[\\/]/.test(value) ||
+  value.startsWith("\\\\") ||
+  value.startsWith("/") ||
+  value.startsWith("\\\\?\\")
+
+const canOpenProjectWorkspace = (project: Project) => {
+  if (!project.sourceType) {
+    return true
+  }
+  if (project.sourceStatus === "pending") {
+    return false
+  }
+  if (project.sourceType === "youtube") {
+    return Boolean(project.importedMediaPath?.trim())
+  }
+  if (project.sourceType === "local") {
+    return Boolean(project.importedMediaPath?.trim() || project.sourceUrl?.trim())
+  }
+  return true
+}
+
 export function AppShell() {
   const [isBooting, setIsBooting] = useState(true)
   const [projects, setProjects] = useState<Project[]>([])
@@ -57,6 +89,19 @@ export function AppShell() {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const installToastIdsRef = useRef<Record<string, string>>({})
   const installTaskProgressRef = useRef<Record<string, number>>({})
+  const hiddenProgressTasksRef = useRef<Record<string, boolean>>({})
+  const taskNotificationIdsRef = useRef<Record<string, string>>({})
+  const taskLatestRef = useRef<
+    Record<
+      string,
+      {
+        title: string
+        description: string
+        target?: NotificationTarget
+        progress: number | null
+      }
+    >
+  >({})
   const { pushToast, updateToast } = useAppToast()
 
   const appendNotification = useCallback(
@@ -81,33 +126,144 @@ export function AppShell() {
     [],
   )
 
+  const upsertTaskNotification = useCallback(
+    (
+      task: string,
+      payload: Omit<AppNotification, "id" | "createdAt" | "timestamp" | "unread">,
+    ) => {
+      const now = new Date()
+      setNotifications((previous) => {
+        const existingId = taskNotificationIdsRef.current[task]
+        if (existingId) {
+          const hasExisting = previous.some((item) => item.id === existingId)
+          if (hasExisting) {
+            return previous.map((item) =>
+              item.id === existingId
+                ? {
+                    ...item,
+                    ...payload,
+                    createdAt: now.getTime(),
+                    timestamp: formatNotificationTime(now),
+                    unread: true,
+                  }
+                : item,
+            )
+          }
+        }
+
+        const nextId = `ntf-task-${task}-${Math.random().toString(36).slice(2, 8)}`
+        taskNotificationIdsRef.current[task] = nextId
+        const nextItem: AppNotification = {
+          id: nextId,
+          title: payload.title,
+          description: payload.description,
+          tone: payload.tone,
+          target: payload.target,
+          createdAt: now.getTime(),
+          timestamp: formatNotificationTime(now),
+          unread: true,
+        }
+        return [nextItem, ...previous].slice(0, MAX_NOTIFICATIONS)
+      })
+    },
+    [],
+  )
+
   const markAllNotificationsRead = useCallback(() => {
     setNotifications((previous) => previous.map((item) => ({ ...item, unread: false })))
   }, [])
 
-  const openNotification = useCallback((notificationId: string) => {
-    setNotifications((previous) => {
-      const target = previous.find((item) => item.id === notificationId)?.target
-      const next = previous.map((item) =>
-        item.id === notificationId ? { ...item, unread: false } : item,
+  const tryOpenWorkspaceProject = useCallback(
+    (projectId: string, requestedMode: WorkspaceMode | null = null) => {
+      const project = projects.find((candidate) => candidate.id === projectId)
+      if (!project) {
+        return
+      }
+      if (!canOpenProjectWorkspace(project)) {
+        pushToast({
+          title: "Источник еще не готов",
+          description:
+            project.sourceStatus === "pending"
+              ? "Дождитесь завершения импорта/загрузки видео."
+              : "Видео-источник проекта не найден. Проверьте импорт.",
+          tone: "info",
+          durationMs: 3200,
+        })
+        return
+      }
+      setWorkspaceModeRequest(requestedMode)
+      setActiveProjectId(projectId)
+    },
+    [projects, pushToast],
+  )
+
+  const openNotification = useCallback(
+    (notificationId: string) => {
+      const target = notifications.find((item) => item.id === notificationId)?.target
+      setNotifications((previous) =>
+        previous.map((item) =>
+          item.id === notificationId ? { ...item, unread: false } : item,
+        ),
       )
 
       if (!target) {
-        return next
+        return
       }
 
       if (target.kind === "section") {
         setActiveProjectId(null)
         setWorkspaceModeRequest(null)
         setActiveDashboardSection(target.section)
-      } else {
-        setActiveProjectId(target.projectId)
-        setWorkspaceModeRequest(target.mode ?? null)
+        return
       }
 
-      return next
-    })
-  }, [])
+      tryOpenWorkspaceProject(target.projectId, target.mode ?? null)
+    },
+    [notifications, tryOpenWorkspaceProject],
+  )
+
+  const updateProject = useCallback(
+    (projectId: string, patch: Partial<Project>) => {
+      setProjects((previous) =>
+        previous.map((project) =>
+          project.id === projectId ? { ...project, ...patch, updatedAt: "только что" } : project,
+        ),
+      )
+
+      void updateProjectViaBackend(projectId, {
+        name: patch.name,
+        description: patch.description,
+        status: patch.status,
+        clips: patch.clips,
+        durationSeconds: patch.durationSeconds,
+        sourceType: patch.sourceType,
+        sourceLabel: patch.sourceLabel,
+        sourceUrl: patch.sourceUrl,
+        sourceStatus: patch.sourceStatus,
+        sourceUploader: patch.sourceUploader,
+        sourceDurationSeconds: patch.sourceDurationSeconds,
+        sourceThumbnail: patch.sourceThumbnail,
+        sourceViewCount: patch.sourceViewCount,
+        sourceLikeCount: patch.sourceLikeCount,
+        sourceCommentCount: patch.sourceCommentCount,
+        sourceUploadDate: patch.sourceUploadDate,
+        sourceChannelId: patch.sourceChannelId,
+        sourceChannelUrl: patch.sourceChannelUrl,
+        sourceChannelFollowers: patch.sourceChannelFollowers,
+        importedMediaPath: patch.importedMediaPath,
+        updatedAt: patch.updatedAt,
+      })
+        .then((project) => {
+          setProjects((previous) =>
+            previous.map((current) => (current.id === projectId ? project : current)),
+          )
+        })
+        .catch((error) => {
+          console.error("Failed to persist project patch:", error)
+        })
+    },
+    [],
+  )
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -169,6 +325,47 @@ export function AppShell() {
     let unlisten: (() => void) | null = null
     let disposed = false
 
+    const resolveNotificationTarget = (
+      task: string,
+      status: RuntimeInstallProgressEvent["status"],
+    ): NotificationTarget | undefined => {
+      const youtubeTaskMatch = task.match(/^youtube-download:(.+)$/)
+      if (youtubeTaskMatch?.[1]) {
+        return {
+          kind: "workspace",
+          projectId: youtubeTaskMatch[1],
+          mode: status === "success" ? "video" : "clips",
+        }
+      }
+      const clipExportTaskMatch = task.match(/^clip-export:(.+)$/)
+      if (clipExportTaskMatch?.[1]) {
+        return {
+          kind: "workspace",
+          projectId: clipExportTaskMatch[1],
+          mode: "export",
+        }
+      }
+      if (task === "ffmpeg" || task === "ytdlp") {
+        return { kind: "section", section: "settings" }
+      }
+      return undefined
+    }
+
+    const moveTaskToNotifications = (task: string) => {
+      const latest = taskLatestRef.current[task]
+      if (!latest) {
+        return
+      }
+      const progressSuffix =
+        typeof latest.progress === "number" ? ` • ${Math.round(latest.progress * 100)}%` : ""
+      upsertTaskNotification(task, {
+        title: latest.title,
+        description: `${latest.description}${progressSuffix}`,
+        tone: "info",
+        target: latest.target,
+      })
+    }
+
     const handleProgress = (event: RuntimeInstallProgressEvent) => {
       const toastId = installToastIdsRef.current[event.task]
       const isFinal = event.status === "success" || event.status === "error"
@@ -181,6 +378,8 @@ export function AppShell() {
       if (normalizedProgress !== null) {
         installTaskProgressRef.current[event.task] = normalizedProgress
       }
+      const detail =
+        typeof event.detail === "string" ? normalizeWindowsExtendedPath(event.detail) : null
       const title =
         event.title ??
         (event.task.startsWith("youtube-download")
@@ -190,64 +389,106 @@ export function AppShell() {
             : event.task === "ytdlp"
               ? "Установка yt-dlp"
               : "Фоновая задача")
-      const description = event.detail ? `${event.message} • ${event.detail}` : event.message
+      const description = detail ? `${event.message} • ${detail}` : event.message
+      const target = resolveNotificationTarget(event.task, event.status)
+      const youtubeProjectId = event.task.match(/^youtube-download:(.+)$/)?.[1] ?? null
+      taskLatestRef.current[event.task] = {
+        title,
+        description,
+        target,
+        progress: normalizedProgress,
+      }
+
+      const isHiddenTask = Boolean(hiddenProgressTasksRef.current[event.task])
+      if (isHiddenTask && !isFinal) {
+        moveTaskToNotifications(event.task)
+        return
+      }
 
       let resolvedToastId = toastId
-      if (!toastId) {
-        const id = pushToast({
-          title,
-          description,
-          tone: event.status === "error" ? "error" : event.status === "success" ? "success" : "progress",
-          progress: normalizedProgress,
-          persistent: !isFinal,
-          durationMs: isFinal ? 3600 : undefined,
-          collapsible: true,
-        })
-        installToastIdsRef.current[event.task] = id
-        resolvedToastId = id
-      } else {
-        updateToast(toastId, {
-          title,
-          description,
-          tone: event.status === "error" ? "error" : event.status === "success" ? "success" : "progress",
-          progress: normalizedProgress,
-          persistent: !isFinal,
-          durationMs: isFinal ? 3600 : undefined,
-          collapsible: true,
-        })
+      if (!isHiddenTask) {
+        if (!toastId) {
+          const id = pushToast({
+            title,
+            description,
+            tone:
+              event.status === "error"
+                ? "error"
+                : event.status === "success"
+                  ? "success"
+                  : "progress",
+            progress: normalizedProgress,
+            persistent: !isFinal,
+            durationMs: isFinal ? 3600 : undefined,
+            collapsible: true,
+            onDismiss: ({ reason }) => {
+              if (reason !== "manual" || isFinal) {
+                return
+              }
+              hiddenProgressTasksRef.current[event.task] = true
+              delete installToastIdsRef.current[event.task]
+              moveTaskToNotifications(event.task)
+            },
+          })
+          installToastIdsRef.current[event.task] = id
+          resolvedToastId = id
+        } else {
+          updateToast(toastId, {
+            title,
+            description,
+            tone:
+              event.status === "error"
+                ? "error"
+                : event.status === "success"
+                  ? "success"
+                  : "progress",
+            progress: normalizedProgress,
+            persistent: !isFinal,
+            durationMs: isFinal ? 3600 : undefined,
+            collapsible: true,
+            onDismiss: ({ reason }) => {
+              if (reason !== "manual" || isFinal) {
+                return
+              }
+              hiddenProgressTasksRef.current[event.task] = true
+              delete installToastIdsRef.current[event.task]
+              moveTaskToNotifications(event.task)
+            },
+          })
+        }
       }
 
       if (isFinal) {
-        const youtubeTaskMatch = event.task.match(/^youtube-download:(.+)$/)
-        const clipExportTaskMatch = event.task.match(/^clip-export:(.+)$/)
-        appendNotification({
+        if (youtubeProjectId) {
+          if (event.status === "success") {
+            const patch: Partial<Project> = {
+              sourceStatus: "ready",
+            }
+            if (detail && isLikelyFilesystemPath(detail)) {
+              patch.importedMediaPath = detail
+            }
+            updateProject(youtubeProjectId, patch)
+          } else if (event.status === "error") {
+            updateProject(youtubeProjectId, { sourceStatus: "failed" })
+          }
+        }
+
+        upsertTaskNotification(event.task, {
           title,
           description,
           tone: event.status === "error" ? "error" : "success",
-          target: youtubeTaskMatch?.[1]
-            ? {
-                kind: "workspace",
-                projectId: youtubeTaskMatch[1],
-                mode: event.status === "success" ? "video" : "clips",
-              }
-            : clipExportTaskMatch?.[1]
-              ? {
-                  kind: "workspace",
-                  projectId: clipExportTaskMatch[1],
-                  mode: "export",
-                }
-            : event.task === "ffmpeg" || event.task === "ytdlp"
-              ? { kind: "section", section: "settings" }
-              : undefined,
+          target,
         })
 
         void getRuntimeToolsStatus()
           .then((status) => setRuntimeStatus(status))
           .catch(() => {})
 
+        delete hiddenProgressTasksRef.current[event.task]
         const toastIdForCleanup = resolvedToastId
         window.setTimeout(() => {
           delete installTaskProgressRef.current[event.task]
+          delete taskLatestRef.current[event.task]
           if (toastIdForCleanup && installToastIdsRef.current[event.task] === toastIdForCleanup) {
             delete installToastIdsRef.current[event.task]
           }
@@ -269,50 +510,7 @@ export function AppShell() {
         unlisten()
       }
     }
-  }, [appendNotification, pushToast, updateToast])
-
-  const updateProject = useCallback(
-    (projectId: string, patch: Partial<Project>) => {
-      setProjects((previous) =>
-        previous.map((project) =>
-          project.id === projectId ? { ...project, ...patch, updatedAt: "только что" } : project,
-        ),
-      )
-
-      void updateProjectViaBackend(projectId, {
-        name: patch.name,
-        description: patch.description,
-        status: patch.status,
-        clips: patch.clips,
-        durationSeconds: patch.durationSeconds,
-        sourceType: patch.sourceType,
-        sourceLabel: patch.sourceLabel,
-        sourceUrl: patch.sourceUrl,
-        sourceStatus: patch.sourceStatus,
-        sourceUploader: patch.sourceUploader,
-        sourceDurationSeconds: patch.sourceDurationSeconds,
-        sourceThumbnail: patch.sourceThumbnail,
-        sourceViewCount: patch.sourceViewCount,
-        sourceLikeCount: patch.sourceLikeCount,
-        sourceCommentCount: patch.sourceCommentCount,
-        sourceUploadDate: patch.sourceUploadDate,
-        sourceChannelId: patch.sourceChannelId,
-        sourceChannelUrl: patch.sourceChannelUrl,
-        sourceChannelFollowers: patch.sourceChannelFollowers,
-        importedMediaPath: patch.importedMediaPath,
-        updatedAt: patch.updatedAt,
-      })
-        .then((project) => {
-          setProjects((previous) =>
-            previous.map((current) => (current.id === projectId ? project : current)),
-          )
-        })
-        .catch((error) => {
-          console.error("Failed to persist project patch:", error)
-        })
-    },
-    [],
-  )
+  }, [pushToast, updateProject, updateToast, upsertTaskNotification])
 
   const deleteProject = useCallback((projectId: string) => {
     setProjects((previous) => previous.filter((project) => project.id !== projectId))
@@ -354,6 +552,7 @@ export function AppShell() {
               key={`workspace-${activeProject.id}-${workspaceModeRequest ?? "default"}`}
               project={activeProject}
               initialMode={workspaceModeRequest}
+              onProjectPatch={updateProject}
               onBack={() => {
                 setActiveProjectId(null)
                 setWorkspaceModeRequest(null)
@@ -386,8 +585,7 @@ export function AppShell() {
               onUpdateProject={updateProject}
               onDeleteProject={deleteProject}
               onOpenProject={(projectId) => {
-                setWorkspaceModeRequest(null)
-                setActiveProjectId(projectId)
+                tryOpenWorkspaceProject(projectId, null)
               }}
             />
           )}

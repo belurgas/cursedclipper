@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -17,6 +18,21 @@ const FFMPEG_WINDOWS_ESSENTIALS_URL: &str =
     "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
 const FFMPEG_WINDOWS_FALLBACK_URL: &str =
     "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip";
+const YTDLP_SHA256SUMS_URL: &str =
+    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS";
+const FFMPEG_WINDOWS_ESSENTIALS_SHA256_URL: &str =
+    "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256";
+const FFMPEG_WINDOWS_FALLBACK_SHA256_URL: &str =
+    "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/checksums.sha256";
+const TRUSTED_DOWNLOAD_HOSTS: [&str; 4] = [
+    "github.com",
+    "objects.githubusercontent.com",
+    "www.gyan.dev",
+    "gyan.dev",
+];
+const ALLOWED_VIDEO_EXTENSIONS: [&str; 9] = [
+    "mp4", "mov", "mkv", "webm", "m4v", "avi", "wmv", "mpeg", "mpg",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -324,6 +340,114 @@ fn emit_install_progress(
     emit_install_progress_with_detail(app, task, status, message, None, progress);
 }
 
+fn trusted_host_match(host: &str, allowed_host: &str) -> bool {
+    host.eq_ignore_ascii_case(allowed_host)
+        || host
+            .to_ascii_lowercase()
+            .ends_with(&format!(".{}", allowed_host.to_ascii_lowercase()))
+}
+
+fn ensure_trusted_https_url(url: &str) -> Result<Url, String> {
+    let parsed = Url::parse(url).map_err(|_| "Некорректный URL источника.".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("Разрешены только HTTPS-источники загрузки.".to_string());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "Не удалось определить домен источника.".to_string())?;
+    if TRUSTED_DOWNLOAD_HOSTS
+        .iter()
+        .any(|allowed| trusted_host_match(host, allowed))
+    {
+        return Ok(parsed);
+    }
+    Err(format!("Недоверенный источник загрузки: {host}"))
+}
+
+fn download_text(url: &str) -> Result<String, String> {
+    let parsed = ensure_trusted_https_url(url)?;
+    let response = ureq::get(parsed.as_str())
+        .call()
+        .map_err(|error| format!("Не удалось получить контрольную сумму: {error}"))?;
+    let mut reader = response.into_reader();
+    let mut body = Vec::new();
+    reader
+        .read_to_end(&mut body)
+        .map_err(|error| format!("Не удалось прочитать контрольную сумму: {error}"))?;
+    String::from_utf8(body)
+        .map_err(|_| "Контрольная сумма получена в некорректной кодировке.".to_string())
+}
+
+fn parse_sha256_token(value: &str) -> Option<String> {
+    value
+        .split_whitespace()
+        .find(|token| token.len() == 64 && token.chars().all(|ch| ch.is_ascii_hexdigit()))
+        .map(|token| token.to_ascii_lowercase())
+}
+
+fn parse_sha256_for_asset(manifest: &str, asset_name: &str) -> Option<String> {
+    for line in manifest.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let normalized = trimmed.replace('*', " ");
+        let mut parts = normalized.split_whitespace();
+        let Some(hash) = parts.next() else {
+            continue;
+        };
+        let Some(filename) = parts
+            .next_back()
+            .or_else(|| normalized.split_whitespace().nth(1))
+        else {
+            continue;
+        };
+        let candidate_name = filename.trim().trim_start_matches("./");
+        if candidate_name.eq_ignore_ascii_case(asset_name)
+            && hash.len() == 64
+            && hash.chars().all(|ch| ch.is_ascii_hexdigit())
+        {
+            return Some(hash.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
+fn sha256_of_file(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path)
+        .map_err(|error| format!("Не удалось открыть файл для checksum: {error}"))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("Ошибка чтения файла для checksum: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn verify_download_checksum(path: &Path, expected_sha256: &str) -> Result<(), String> {
+    let expected = expected_sha256.trim().to_ascii_lowercase();
+    if expected.len() != 64 || !expected.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err("Некорректный формат ожидаемой SHA256 суммы.".to_string());
+    }
+    let actual = sha256_of_file(path)?;
+    if actual != expected {
+        return Err(format!(
+            "Контрольная сумма не совпала. Ожидалась {expected}, получено {actual}."
+        ));
+    }
+    Ok(())
+}
+
+fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, String> {
+    fs::canonicalize(path).map_err(|error| format!("Не удалось разрешить путь: {error}"))
+}
+
 fn managed_ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
     let tools_dir = app_data_dir(app)?.join("tools");
     fs::create_dir_all(&tools_dir)
@@ -346,9 +470,10 @@ fn download_to_path_with_progress(
     start_progress: f32,
     end_progress: f32,
 ) -> Result<(), String> {
-    let source_host = Url::parse(source_url)
-        .ok()
-        .and_then(|url| url.host_str().map(|host| host.to_string()))
+    let parsed_url = ensure_trusted_https_url(source_url)?;
+    let source_host = parsed_url
+        .host_str()
+        .map(|host| host.to_string())
         .unwrap_or_else(|| "неизвестный источник".to_string());
     emit_install_progress_with_detail(
         app,
@@ -359,7 +484,7 @@ fn download_to_path_with_progress(
         Some(start_progress),
     );
 
-    let response = ureq::get(source_url)
+    let response = ureq::get(parsed_url.as_str())
         .call()
         .map_err(|error| format!("Не удалось скачать файл: {error}"))?;
 
@@ -734,7 +859,7 @@ fn validate_format_id(value: &str) -> Result<String, String> {
 }
 
 fn sanitize_project_name(value: Option<String>) -> String {
-    let fallback = "clipforge-import".to_string();
+    let fallback = "cursed-clipper-import".to_string();
     let Some(raw) = value else {
         return fallback;
     };
@@ -795,6 +920,7 @@ fn stage_local_video_file_sync(
     if !source.exists() || !source.is_file() {
         return Err("Исходный локальный файл не найден.".to_string());
     }
+    let source = canonicalize_existing_path(&source)?;
 
     let imports_root = resolve_projects_root_dir(&app, &settings)?;
     let project_dir = imports_root.join(sanitize_project_name(project_name));
@@ -807,6 +933,9 @@ fn stage_local_video_file_sync(
         .map(|value| value.to_lowercase())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "mp4".to_string());
+    if !ALLOWED_VIDEO_EXTENSIONS.contains(&extension.as_str()) {
+        return Err("Неподдерживаемый формат локального видео.".to_string());
+    }
     let stem = source
         .file_stem()
         .and_then(|value| value.to_str())
@@ -1118,7 +1247,13 @@ fn probe_primary_codec(ffprobe_binary: &Path, media_path: &Path, selector: &str)
 fn sanitize_short_text(value: Option<String>, max_len: usize) -> Option<String> {
     value
         .map(|raw| raw.trim().chars().take(max_len).collect::<String>())
-        .and_then(|trimmed| if trimmed.is_empty() { None } else { Some(trimmed) })
+        .and_then(|trimmed| {
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
 }
 
 fn parse_aspect_ratio(value: &str) -> Option<f64> {
@@ -1187,11 +1322,17 @@ fn compute_export_base_dir(
         }
     }
     let projects_root = resolve_projects_root_dir(app, settings)?;
-    Ok(projects_root.join(sanitize_project_name(project_name)).join("exports"))
+    Ok(projects_root
+        .join(sanitize_project_name(project_name))
+        .join("exports"))
 }
 
 fn ensure_unique_export_file_path(base: &Path, stem: &str, ext: &str) -> PathBuf {
-    let extension = if ext.trim().is_empty() { "mp4" } else { ext.trim() };
+    let extension = if ext.trim().is_empty() {
+        "mp4"
+    } else {
+        ext.trim()
+    };
     let mut candidate = base.join(format!("{stem}.{extension}"));
     if !candidate.exists() {
         return candidate;
@@ -1301,9 +1442,12 @@ fn export_clips_batch_sync(
     let settings = load_settings(&app)?;
     let ffmpeg_binary = resolve_ffmpeg_binary(&app, &settings)
         .map(|(path, _)| path)
-        .ok_or_else(|| "FFmpeg не найден. Установите или настройте путь в разделе «Настройки».".to_string())?;
+        .ok_or_else(|| {
+            "FFmpeg не найден. Установите или настройте путь в разделе «Настройки».".to_string()
+        })?;
     let source_path = validate_export_path(&request.source_path)?;
-    let base_export_dir = compute_export_base_dir(&app, &settings, request.project_name.clone(), &source_path)?;
+    let base_export_dir =
+        compute_export_base_dir(&app, &settings, request.project_name.clone(), &source_path)?;
     fs::create_dir_all(&base_export_dir)
         .map_err(|error| format!("Не удалось создать директорию экспорта: {error}"))?;
     let run_dir = base_export_dir.join(format!(
@@ -1319,7 +1463,12 @@ fn export_clips_batch_sync(
     let task_key = sanitize_optional_path(request.task_id)
         .ok()
         .flatten()
-        .unwrap_or_else(|| format!("clip-export:{}", sanitize_project_name(Some(request.project_id.clone()))));
+        .unwrap_or_else(|| {
+            format!(
+                "clip-export:{}",
+                sanitize_project_name(Some(request.project_id.clone()))
+            )
+        });
     emit_install_progress_with_detail(
         &app,
         &task_key,
@@ -1385,7 +1534,8 @@ fn export_clips_batch_sync(
         if let Some(raw_cover_path) = task.cover_path.clone() {
             let trimmed = raw_cover_path.trim();
             if !trimmed.is_empty() {
-                let cover_source = PathBuf::from(trimmed.strip_prefix("\\\\?\\").unwrap_or(trimmed));
+                let cover_source =
+                    PathBuf::from(trimmed.strip_prefix("\\\\?\\").unwrap_or(trimmed));
                 if cover_source.exists() && cover_source.is_file() {
                     let cover_ext = cover_source
                         .extension()
@@ -1398,7 +1548,10 @@ fn export_clips_batch_sync(
                         cover_ext,
                     );
                     fs::copy(&cover_source, &cover_target).map_err(|error| {
-                        format!("Не удалось скопировать обложку {}: {error}", cover_source.display())
+                        format!(
+                            "Не удалось скопировать обложку {}: {error}",
+                            cover_source.display()
+                        )
                     })?;
                     exported_cover = Some(cover_target.to_string_lossy().to_string());
                 }
@@ -1457,6 +1610,42 @@ fn ytdlp_download_url() -> &'static str {
     }
 }
 
+fn ytdlp_asset_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "yt-dlp.exe"
+    } else {
+        "yt-dlp"
+    }
+}
+
+fn expected_ytdlp_sha256() -> Result<String, String> {
+    let manifest = download_text(YTDLP_SHA256SUMS_URL)?;
+    parse_sha256_for_asset(&manifest, ytdlp_asset_name())
+        .ok_or_else(|| "Не удалось найти SHA256 для выбранного бинарника yt-dlp.".to_string())
+}
+
+fn expected_ffmpeg_sha256_for_url(candidate_url: &str) -> Result<String, String> {
+    if candidate_url == FFMPEG_WINDOWS_ESSENTIALS_URL {
+        let payload = download_text(FFMPEG_WINDOWS_ESSENTIALS_SHA256_URL)?;
+        return parse_sha256_token(&payload).ok_or_else(|| {
+            "Не удалось прочитать SHA256 для ffmpeg-release-essentials.zip.".to_string()
+        });
+    }
+    if candidate_url == FFMPEG_WINDOWS_FALLBACK_URL {
+        let manifest = download_text(FFMPEG_WINDOWS_FALLBACK_SHA256_URL)?;
+        let file_name = Url::parse(candidate_url)
+            .ok()
+            .and_then(|url| {
+                url.path_segments()
+                    .and_then(|mut segments| segments.next_back().map(|name| name.to_string()))
+            })
+            .ok_or_else(|| "Не удалось определить имя fallback архива FFmpeg.".to_string())?;
+        return parse_sha256_for_asset(&manifest, &file_name)
+            .ok_or_else(|| format!("Не удалось найти SHA256 для {file_name}."));
+    }
+    Err("Неизвестный источник архива FFmpeg.".to_string())
+}
+
 fn install_managed_ytdlp_sync(app: AppHandle) -> Result<ToolStatus, String> {
     emit_install_progress(
         &app,
@@ -1465,9 +1654,29 @@ fn install_managed_ytdlp_sync(app: AppHandle) -> Result<ToolStatus, String> {
         "Подготовка установки yt-dlp...",
         Some(0.03),
     );
+    emit_install_progress(
+        &app,
+        "ytdlp",
+        "progress",
+        "Проверка контрольной суммы релиза yt-dlp...",
+        Some(0.06),
+    );
+    let expected_sha256 = expected_ytdlp_sha256()?;
+
     let target_path = managed_ytdlp_path(&app)?;
     let temp_path = target_path.with_extension("tmp");
     download_to_path_with_progress(&app, "ytdlp", ytdlp_download_url(), &temp_path, 0.08, 0.88)?;
+    emit_install_progress(
+        &app,
+        "ytdlp",
+        "progress",
+        "Валидация целостности скачанного yt-dlp...",
+        Some(0.91),
+    );
+    if let Err(error) = verify_download_checksum(&temp_path, &expected_sha256) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
 
     emit_install_progress(
         &app,
@@ -1581,6 +1790,21 @@ fn install_managed_ffmpeg_sync(app: AppHandle) -> Result<RuntimeToolsStatus, Str
     let mut downloaded = false;
     let mut last_error: Option<String> = None;
     for candidate_url in [FFMPEG_WINDOWS_ESSENTIALS_URL, FFMPEG_WINDOWS_FALLBACK_URL] {
+        emit_install_progress_with_detail(
+            &app,
+            "ffmpeg",
+            "progress",
+            "Проверка контрольной суммы архива FFmpeg...",
+            Some(candidate_url.to_string()),
+            Some(0.06),
+        );
+        let expected_sha256 = match expected_ffmpeg_sha256_for_url(candidate_url) {
+            Ok(value) => value,
+            Err(error) => {
+                last_error = Some(error);
+                continue;
+            }
+        };
         match download_to_path_with_progress(
             &app,
             "ffmpeg",
@@ -1589,10 +1813,24 @@ fn install_managed_ffmpeg_sync(app: AppHandle) -> Result<RuntimeToolsStatus, Str
             0.08,
             0.78,
         ) {
-            Ok(_) => {
-                downloaded = true;
-                break;
-            }
+            Ok(_) => match verify_download_checksum(&package_path, &expected_sha256) {
+                Ok(_) => {
+                    downloaded = true;
+                    break;
+                }
+                Err(error) => {
+                    last_error = Some(error);
+                    let _ = fs::remove_file(&package_path);
+                    emit_install_progress_with_detail(
+                        &app,
+                        "ffmpeg",
+                        "progress",
+                        "Контрольная сумма не прошла, пробуем резервный источник...",
+                        Some(candidate_url.to_string()),
+                        Some(0.12),
+                    );
+                }
+            },
             Err(error) => {
                 last_error = Some(error);
                 emit_install_progress_with_detail(
@@ -1925,7 +2163,15 @@ fn download_youtube_sync(
             find_latest_video_file(&project_dir).map(|value| value.to_string_lossy().to_string())
         })
         .ok_or_else(|| "Не удалось определить путь скачанного файла.".to_string())?;
+    let project_dir_canonical = canonicalize_existing_path(&project_dir)?;
     let mut final_output_path = PathBuf::from(&output_path);
+    if final_output_path.is_relative() {
+        final_output_path = project_dir.join(final_output_path);
+    }
+    final_output_path = canonicalize_existing_path(&final_output_path)?;
+    if !final_output_path.starts_with(&project_dir_canonical) {
+        return Err("Полученный путь файла выходит за пределы директории проекта.".to_string());
+    }
 
     let ffprobe_binary = resolve_ffprobe_binary(&app, &settings).map(|(path, _)| path);
     let ffmpeg_binary = resolve_ffmpeg_binary(&app, &settings).map(|(path, _)| path);
@@ -2058,7 +2304,7 @@ fn download_youtube_sync(
             let normalized_stem = final_output_path
                 .file_stem()
                 .and_then(|value| value.to_str())
-                .unwrap_or("clipforge-video")
+                .unwrap_or("cursed-clipper-video")
                 .to_string();
             let normalized_path =
                 final_output_path.with_file_name(format!("{normalized_stem}-compat.mp4"));
@@ -2166,7 +2412,7 @@ pub fn open_projects_root_dir(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn open_path_in_file_manager(path: String) -> Result<String, String> {
+pub fn open_path_in_file_manager(app: AppHandle, path: String) -> Result<String, String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err("Путь не указан.".to_string());
@@ -2188,6 +2434,23 @@ pub fn open_path_in_file_manager(path: String) -> Result<String, String> {
     if !target.exists() {
         return Err("Указанный путь не существует.".to_string());
     }
+    let target = canonicalize_existing_path(&target)?;
+
+    let settings = load_settings(&app)?;
+    let projects_root = resolve_projects_root_dir(&app, &settings)?;
+    let mut allowed_roots = Vec::new();
+    allowed_roots.push(canonicalize_existing_path(&projects_root)?);
+    allowed_roots.push(canonicalize_existing_path(&app_data_dir(&app)?)?);
+    allowed_roots.push(canonicalize_existing_path(&app_config_dir(&app)?)?);
+
+    let allowed = allowed_roots.iter().any(|root| target.starts_with(root));
+    if !allowed {
+        return Err(
+            "Открытие произвольных путей запрещено. Разрешены только папки проекта и приложения."
+                .to_string(),
+        );
+    }
+
     open_in_file_manager(&target)?;
     Ok(target.to_string_lossy().to_string())
 }

@@ -355,7 +355,7 @@ export const buildThumbnailTemplates = (
     id: "th_3",
     name: "Уверенный кадр",
     overlayTitle: "Сделайте это до публикации",
-    overlaySubtitle: "Интеллект ClipForge",
+    overlaySubtitle: "Интеллект Cursed Clipper",
     focusTime: Math.max(5, duration * 0.45),
     palette: ["#f4f7ff", "#6f7d96"],
   },

@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "ClipForge Studio",
+  "productName": "Cursed Clipper",
   "version": "0.1.0",
-  "identifier": "com.clipforge.studio",
+  "identifier": "com.cursed.clipper",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "ClipForge Studio",
+        "title": "Cursed Clipper",
         "width": 1480,
         "height": 920,
         "minWidth": 1180,
@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: https: http://asset.localhost https://asset.localhost; media-src 'self' data: blob: asset: http://asset.localhost https://asset.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https: http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
       "assetProtocol": {
         "enable": true,
         "scope": [
@@ -44,9 +44,7 @@
     "active": true,
     "targets": "all",
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
+      "icons/cc_logo.png",
       "icons/icon.icns",
       "icons/icon.ico"
     ]

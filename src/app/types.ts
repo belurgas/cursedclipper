@@ -32,6 +32,10 @@ export type NewsItem = {
   label: string
   title: string
   timestamp: string
+  summary?: string
+  author?: string
+  coverEmoji?: string
+  contentMarkdown?: string
 }
 
 export type TranscriptWord = {

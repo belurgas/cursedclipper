@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils"
 
 type ToastTone = "info" | "success" | "error" | "progress"
+type ToastDismissReason = "manual" | "timeout" | "programmatic"
 
 type ToastItem = {
   id: string
@@ -32,6 +33,11 @@ type ToastItem = {
   durationMs?: number
   collapsible?: boolean
   collapsed?: boolean
+  onDismiss?: (context: {
+    id: string
+    reason: ToastDismissReason
+    toast: ToastItem
+  }) => void
 }
 
 type ToastInput = Omit<ToastItem, "id">
@@ -39,7 +45,7 @@ type ToastInput = Omit<ToastItem, "id">
 type ToastContextValue = {
   pushToast: (toast: ToastInput) => string
   updateToast: (id: string, patch: Partial<ToastInput>) => void
-  dismissToast: (id: string) => void
+  dismissToast: (id: string, reason?: ToastDismissReason) => void
 }
 
 const DEFAULT_DURATION_MS = 4200
@@ -83,13 +89,19 @@ export function AppToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const timersRef = useRef<Map<string, number>>(new Map())
 
-  const dismissToast = useCallback((id: string) => {
+  const dismissToast = useCallback((id: string, reason: ToastDismissReason = "programmatic") => {
     const timer = timersRef.current.get(id)
     if (timer) {
       window.clearTimeout(timer)
       timersRef.current.delete(id)
     }
-    setToasts((previous) => previous.filter((toast) => toast.id !== id))
+    setToasts((previous) => {
+      const target = previous.find((toast) => toast.id === id)
+      if (target?.onDismiss) {
+        target.onDismiss({ id, reason, toast: target })
+      }
+      return previous.filter((toast) => toast.id !== id)
+    })
   }, [])
 
   const scheduleDismiss = useCallback(
@@ -103,7 +115,7 @@ export function AppToastProvider({ children }: { children: ReactNode }) {
         return
       }
       const timeoutMs = toast.durationMs ?? DEFAULT_DURATION_MS
-      const timer = window.setTimeout(() => dismissToast(toast.id), timeoutMs)
+      const timer = window.setTimeout(() => dismissToast(toast.id, "timeout"), timeoutMs)
       timersRef.current.set(toast.id, timer)
     },
     [dismissToast],
@@ -227,7 +239,7 @@ export function AppToastProvider({ children }: { children: ReactNode }) {
                     <button
                       type="button"
                       className="rounded-md p-1 text-zinc-300/80 transition hover:bg-white/10 hover:text-zinc-100"
-                      onClick={() => dismissToast(toast.id)}
+                      onClick={() => dismissToast(toast.id, "manual")}
                     >
                       <XIcon className="size-3.5" />
                     </button>
@@ -270,4 +282,3 @@ export function useAppToast() {
   }
   return context
 }
-

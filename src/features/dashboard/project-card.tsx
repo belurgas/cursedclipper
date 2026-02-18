@@ -32,11 +32,18 @@ const statusMap: Record<Project["status"], string> = {
 
 const sourceStatusMap = {
   pending: "Импорт: в обработке",
-  ready: "Импорт: готов",
   failed: "Импорт: ошибка",
 } as const
 
 export function ProjectCard({ project, onOpen, onDelete }: ProjectCardProps) {
+  const canOpenProject =
+    !project.sourceType ||
+    (project.sourceStatus !== "pending" &&
+      (project.sourceType !== "youtube" ||
+        Boolean(project.importedMediaPath?.trim())) &&
+      (project.sourceType !== "local" ||
+        Boolean(project.importedMediaPath?.trim() || project.sourceUrl?.trim())))
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -84,18 +91,18 @@ export function ProjectCard({ project, onOpen, onDelete }: ProjectCardProps) {
             </div>
           </div>
 
-          {project.sourceType === "youtube" && project.sourceStatus ? (
+          {project.sourceType === "youtube" && project.sourceStatus && project.sourceStatus !== "ready" ? (
             <div
               className={[
                 "rounded-lg border px-2 py-1 text-xs",
                 project.sourceStatus === "failed"
                   ? "border-rose-300/20 bg-rose-400/10 text-rose-100"
-                  : project.sourceStatus === "ready"
-                    ? "border-emerald-300/20 bg-emerald-400/10 text-emerald-100"
-                    : "border-white/10 bg-black/20 text-zinc-300",
+                  : "border-white/10 bg-black/20 text-zinc-300",
               ].join(" ")}
             >
-              {sourceStatusMap[project.sourceStatus]}
+              {project.sourceStatus === "failed"
+                ? sourceStatusMap.failed
+                : sourceStatusMap.pending}
               {project.sourceUploader ? ` • ${project.sourceUploader}` : ""}
               {project.sourceDurationSeconds ? ` • ~${project.sourceDurationSeconds} с` : ""}
             </div>
@@ -140,6 +147,8 @@ export function ProjectCard({ project, onOpen, onDelete }: ProjectCardProps) {
               <Button
                 size="sm"
                 className="bg-zinc-100/10 text-zinc-100 hover:bg-zinc-100/20"
+                disabled={!canOpenProject}
+                title={canOpenProject ? "Открыть проект" : "Источник еще не готов"}
                 onClick={() => onOpen(project.id)}
               >
                 <SparklesIcon className="size-3.5" />

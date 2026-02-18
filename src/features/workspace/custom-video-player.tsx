@@ -259,6 +259,11 @@ export const CustomVideoPlayer = forwardRef<HTMLVideoElement, CustomVideoPlayerP
       [seekTo],
     )
 
+    const onTimelinePointerCancel = useCallback(() => {
+      setDraggingTimeline(false)
+      setDragTime(null)
+    }, [])
+
     const onTimelineChange = useCallback((value: string) => {
       const next = Number(value)
       setDragTime(next)
@@ -278,6 +283,10 @@ export const CustomVideoPlayer = forwardRef<HTMLVideoElement, CustomVideoPlayerP
       },
       [changeVolume],
     )
+
+    const onVolumePointerCancel = useCallback(() => {
+      setDraggingVolume(false)
+    }, [])
 
     return (
       <>
@@ -399,6 +408,8 @@ export const CustomVideoPlayer = forwardRef<HTMLVideoElement, CustomVideoPlayerP
               onChange={(event) => onTimelineChange(event.currentTarget.value)}
               onPointerDown={onTimelinePointerDown}
               onPointerUp={onTimelinePointerUp}
+              onPointerCancel={onTimelinePointerCancel}
+              onLostPointerCapture={onTimelinePointerCancel}
               className="absolute inset-0 h-full w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-zinc-100 [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(229,236,248,0.85)] [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-zinc-100 [&::-moz-range-track]:bg-transparent"
             />
           </div>
@@ -470,6 +481,8 @@ export const CustomVideoPlayer = forwardRef<HTMLVideoElement, CustomVideoPlayerP
                   }}
                   onPointerDown={onVolumePointerDown}
                   onPointerUp={onVolumePointerUp}
+                  onPointerCancel={onVolumePointerCancel}
+                  onLostPointerCapture={onVolumePointerCancel}
                   className="h-2 w-20 cursor-pointer appearance-none rounded-full bg-white/12 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-zinc-100 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-zinc-100"
                 />
               </div>

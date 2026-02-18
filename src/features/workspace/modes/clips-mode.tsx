@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, type RefObject } from "react"
-import { AnimatePresence, motion } from "framer-motion"
+import { motion } from "framer-motion"
 import { ScissorsLineDashedIcon, Trash2Icon } from "lucide-react"
 
 import { formatSeconds } from "@/app/mock-data"
@@ -115,43 +115,37 @@ export default function ClipsMode({
           <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
             <section className="min-h-0 rounded-xl border border-white/10 bg-black/24 p-2.5">
               <p className="mb-2 text-xs tracking-[0.14em] text-zinc-500 uppercase">Список клипов</p>
-              <div className="grid max-h-full gap-2 overflow-auto pr-1">
-                <AnimatePresence mode="popLayout">
-                  {clips.map((clip) => (
-                    <motion.button
-                      key={clip.id}
-                      layout
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -6 }}
-                      onClick={() => selectClip(clip.id)}
-                      className={[
-                        "rounded-lg border px-3 py-2 text-left transition",
-                        clip.id === activeClip?.id
-                          ? "border-zinc-200/40 bg-zinc-100/12"
-                          : "border-white/10 bg-white/6 hover:border-white/20",
-                      ].join(" ")}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm text-zinc-100">{clip.title}</p>
-                        <span className="text-[11px] text-zinc-400">
-                          {formatSeconds(clip.start)} - {formatSeconds(clip.end)}
-                        </span>
-                      </div>
-                      <div className="mt-1 h-1.5 rounded-full bg-white/8">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-zinc-300/70 via-zinc-100/80 to-zinc-300/65"
-                          style={{
-                            width: `${Math.max(
-                              ((clip.end - clip.start) / Math.max(media.duration, 1)) * 100,
-                              4,
-                            )}%`,
-                          }}
-                        />
-                      </div>
-                    </motion.button>
-                  ))}
-                </AnimatePresence>
+              <div className="grid max-h-full gap-2 overflow-x-hidden overflow-y-auto pr-1">
+                {clips.map((clip) => (
+                  <button
+                    key={clip.id}
+                    onClick={() => selectClip(clip.id)}
+                    className={[
+                      "rounded-lg border px-3 py-2 text-left transition",
+                      clip.id === activeClip?.id
+                        ? "border-zinc-200/40 bg-zinc-100/12"
+                        : "border-white/10 bg-white/6 hover:border-white/20",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm text-zinc-100">{clip.title}</p>
+                      <span className="text-[11px] text-zinc-400">
+                        {formatSeconds(clip.start)} - {formatSeconds(clip.end)}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 rounded-full bg-white/8">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-zinc-300/70 via-zinc-100/80 to-zinc-300/65"
+                        style={{
+                          width: `${Math.max(
+                            ((clip.end - clip.start) / Math.max(media.duration, 1)) * 100,
+                            4,
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </button>
+                ))}
               </div>
             </section>
 

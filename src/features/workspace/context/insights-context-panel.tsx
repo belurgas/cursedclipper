@@ -10,8 +10,45 @@ type InsightsContextPanelProps = {
   project: Project
 }
 
+const formatMetric = (value?: number) => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null
+  }
+  return new Intl.NumberFormat("ru-RU").format(Math.max(0, Math.round(value)))
+}
+
+const formatUploadDate = (value?: string) => {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return null
+  }
+  if (/^\d{8}$/.test(trimmed)) {
+    const year = Number(trimmed.slice(0, 4))
+    const month = Number(trimmed.slice(4, 6))
+    const day = Number(trimmed.slice(6, 8))
+    const candidate = new Date(year, month - 1, day)
+    if (
+      candidate.getFullYear() === year &&
+      candidate.getMonth() === month - 1 &&
+      candidate.getDate() === day
+    ) {
+      return new Intl.DateTimeFormat("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      }).format(candidate)
+    }
+  }
+  return trimmed
+}
+
 export default function InsightsContextPanel({ controller, project }: InsightsContextPanelProps) {
   const { ai, media, transcript, clips, actions } = controller
+  const sourceFollowers = formatMetric(project.sourceChannelFollowers)
+  const sourceViews = formatMetric(project.sourceViewCount)
+  const sourceLikes = formatMetric(project.sourceLikeCount)
+  const sourceComments = formatMetric(project.sourceCommentCount)
+  const sourceUploadDate = formatUploadDate(project.sourceUploadDate)
 
   return (
     <div className="space-y-3">
@@ -23,14 +60,14 @@ export default function InsightsContextPanel({ controller, project }: InsightsCo
         <div className="mt-2 space-y-1.5 text-xs text-zinc-400">
           <p>Видео: {media.videoName || "не загружено"}</p>
           {project.sourceUploader ? <p>Канал: {project.sourceUploader}</p> : null}
-          {project.sourceChannelFollowers ? <p>Подписчики: {project.sourceChannelFollowers}</p> : null}
-          {project.sourceDurationSeconds ? (
+          {sourceFollowers ? <p>Подписчики: {sourceFollowers}</p> : null}
+          {typeof project.sourceDurationSeconds === "number" ? (
             <p>Источник: ~{project.sourceDurationSeconds} с</p>
           ) : null}
-          {project.sourceUploadDate ? <p>Дата публикации: {project.sourceUploadDate}</p> : null}
-          {project.sourceViewCount ? <p>Просмотры: {project.sourceViewCount}</p> : null}
-          {project.sourceLikeCount ? <p>Лайки: {project.sourceLikeCount}</p> : null}
-          {project.sourceCommentCount ? <p>Комментарии: {project.sourceCommentCount}</p> : null}
+          {sourceUploadDate ? <p>Дата публикации: {sourceUploadDate}</p> : null}
+          {sourceViews ? <p>Просмотры: {sourceViews}</p> : null}
+          {sourceLikes ? <p>Лайки: {sourceLikes}</p> : null}
+          {sourceComments ? <p>Комментарии: {sourceComments}</p> : null}
           <p>Слов: {transcript.words.length}</p>
           <p>Клипов: {clips.length}</p>
         </div>

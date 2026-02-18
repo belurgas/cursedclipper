@@ -1,8 +1,8 @@
 <p align="center">
-  <img width="3785" height="789" alt="ClipForge Studio" src="https://github.com/user-attachments/assets/49d72804-9993-49ff-866b-071025fa6be8" />
+  <img width="3785" height="789" alt="Cursed Clipper" src="https://github.com/user-attachments/assets/49d72804-9993-49ff-866b-071025fa6be8" />
 </p>
 
-<h1 align="center">ClipForge Studio</h1>
+<h1 align="center">Cursed Clipper</h1>
 <p align="center">
   Премиальный AI-клиппер для Windows/macOS на <b>React + Tauri v2</b> с профессиональным workflow:
   расшифровка → клипы → аналитика → обложки → экспорт.
@@ -151,4 +151,3 @@ npm run tauri:build
 - Логотип приложения: `cc_logo`
 - App icons (`ico`, `icns`, `png` размеры) сгенерированы из `src-tauri/icons/cc_logo.png`
 - Web favicon: `public/cc_logo.svg`, `public/cc_logo.png`
-

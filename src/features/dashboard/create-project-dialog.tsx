@@ -74,6 +74,17 @@ function fileNameFromPath(path: string) {
   return chunks[chunks.length - 1] || path
 }
 
+function normalizeWindowsExtendedPath(path: string) {
+  const trimmed = path.trim()
+  if (trimmed.startsWith("\\\\?\\UNC\\")) {
+    return `\\\\${trimmed.slice("\\\\?\\UNC\\".length)}`
+  }
+  if (trimmed.startsWith("\\\\?\\")) {
+    return trimmed.slice("\\\\?\\".length)
+  }
+  return trimmed
+}
+
 function resolutionHeight(resolution: string) {
   const matrixMatch = resolution.match(/(\d{3,5})\s*x\s*(\d{3,5})/i)
   if (matrixMatch) {
@@ -341,11 +352,12 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
           taskId: `youtube-download:${project.id}`,
         })
           .then((downloadResult) => {
+            const outputPath = normalizeWindowsExtendedPath(downloadResult.outputPath)
             const resolvedDuration =
               downloadResult.durationSeconds ?? inferredDuration ?? project.durationSeconds
             onUpdateProject(project.id, {
               sourceStatus: "ready",
-              importedMediaPath: downloadResult.outputPath,
+              importedMediaPath: outputPath,
               sourceUrl: downloadResult.sourceUrl,
               sourceLabel: probeResult?.title || "YouTube import",
               durationSeconds: resolvedDuration,

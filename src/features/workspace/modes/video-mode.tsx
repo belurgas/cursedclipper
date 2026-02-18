@@ -46,7 +46,7 @@ export default function VideoMode({
   videoRef,
   onOpenFilePicker,
 }: VideoModeProps) {
-  const { media, transcript, clips, semanticBlocks, actions, ai } = controller
+  const { media, transcript, clips, semanticBlocks, actions } = controller
   const [inspectorTab, setInspectorTab] = useState<"transcript" | "timecodes">("transcript")
   const [narrowPane, setNarrowPane] = useState<"canvas" | "inspector">("canvas")
   const [timecodeStart, setTimecodeStart] = useState("")
@@ -151,15 +151,6 @@ export default function VideoMode({
         </div>
       </div>
 
-      {ai.isAnyProcessing ? (
-        <div className="rounded-lg border border-white/10 bg-black/24 px-3 py-2">
-          <ShinyText
-            text="ИИ синхронизирует таймлайн, блоки и прогнозы виральности."
-            speed={2.2}
-            className="text-xs"
-          />
-        </div>
-      ) : null}
     </div>
   )
 

@@ -30,14 +30,17 @@ import { workspaceMotion } from "@/features/workspace/motion"
 import { useWorkspaceController } from "@/features/workspace/use-workspace-controller"
 import { type WorkspaceMode } from "@/features/workspace/workspace-modes"
 import { AmbientBackground } from "@/shared/react-bits/ambient-background"
+import { ShinyText } from "@/shared/react-bits/shiny-text"
 import { useAppToast } from "@/shared/ui/app-toast-provider"
 import {
   loadProjectResumeState,
   loadProjectWorkspaceState,
   openPathInFileManager,
   openProjectsRootDir,
+  type ProjectResumeState,
   saveProjectResumeState,
   saveProjectWorkspaceState,
+  type WorkspacePersistedState,
 } from "@/shared/tauri/backend"
 
 type WorkspaceViewProps = {
@@ -45,6 +48,7 @@ type WorkspaceViewProps = {
   initialMode?: WorkspaceMode | null
   onBack: () => void
   onOpenSettings: () => void
+  onProjectPatch?: (projectId: string, patch: Partial<Project>) => void
 }
 
 const modeTitles: Record<WorkspaceMode, string> = {
@@ -67,11 +71,34 @@ function isWorkspaceMode(value: string): value is WorkspaceMode {
   return value === "video" || value === "clips" || value === "export" || value === "insights" || value === "thumbnails"
 }
 
+function hasMeaningfulWorkspaceState(
+  state: WorkspacePersistedState,
+  sourceType: Project["sourceType"],
+  sourceUrl: Project["sourceUrl"],
+): boolean {
+  const restoredVideoUrl = state.media?.videoUrl?.trim() ?? ""
+  const hasTranscript = Array.isArray(state.transcript?.words) && state.transcript.words.length > 0
+  const hasSemantic = Array.isArray(state.semanticBlocks) && state.semanticBlocks.length > 0
+  const hasClips = Array.isArray(state.clips) && state.clips.length > 0
+  const isStaleYoutubeSourceUrl =
+    sourceType === "youtube" &&
+    typeof sourceUrl === "string" &&
+    sourceUrl.trim().length > 0 &&
+    restoredVideoUrl.length > 0 &&
+    restoredVideoUrl === sourceUrl
+
+  if (isStaleYoutubeSourceUrl) {
+    return hasTranscript || hasSemantic || hasClips
+  }
+  return restoredVideoUrl.length > 0 || hasTranscript || hasSemantic || hasClips
+}
+
 export function WorkspaceView({
   project,
   initialMode = null,
   onBack,
   onOpenSettings,
+  onProjectPatch,
 }: WorkspaceViewProps) {
   const controller = useWorkspaceController(project.id, project.name)
   const { pushToast } = useAppToast()
@@ -89,17 +116,70 @@ export function WorkspaceView({
   const manualModeChangeRef = useRef(false)
   const lastWorkspaceSnapshotRef = useRef("")
   const lastResumeSnapshotRef = useRef("")
+  const hasHydratedWorkspaceStateRef = useRef(false)
+  const pendingWorkspaceSnapshotRef = useRef<string | null>(null)
+  const pendingWorkspacePayloadRef = useRef<WorkspacePersistedState | null>(null)
+  const pendingResumeSnapshotRef = useRef<string | null>(null)
+  const pendingResumePayloadRef = useRef<
+    Pick<ProjectResumeState, "activeMode" | "currentTime" | "activeClipId"> | null
+  >(null)
+  const persistErrorReportedAtRef = useRef(0)
+  const flushPersistenceRef = useRef<(() => void) | null>(null)
+  const lastProjectMetricsSnapshotRef = useRef("")
 
   const openFilePicker = () => fileInputRef.current?.click()
+  const resolvedProjectSourceCandidate = useMemo(() => {
+    const importedPath = project.importedMediaPath?.trim()
+    if (importedPath) {
+      return importedPath
+    }
+    if (project.sourceType === "local") {
+      const sourceUrl = project.sourceUrl?.trim()
+      if (sourceUrl) {
+        return sourceUrl
+      }
+    }
+    return null
+  }, [project.importedMediaPath, project.sourceType, project.sourceUrl])
+  const hasStaleYoutubeSourceUrl =
+    project.sourceType === "youtube" &&
+    Boolean(project.sourceUrl) &&
+    controller.media.videoUrl === project.sourceUrl
+  const isMediaBootstrapPending =
+    hydrationResolved &&
+    Boolean(resolvedProjectSourceCandidate) &&
+    (!controller.media.videoUrl || hasStaleYoutubeSourceUrl)
+
   const handleModeChange = useCallback((mode: WorkspaceMode) => {
+    if (!hydrationResolved || isMediaBootstrapPending) {
+      return
+    }
     if (mode === activeMode) {
       return
     }
     manualModeChangeRef.current = true
     setActiveMode(mode)
-  }, [activeMode])
+  }, [activeMode, hydrationResolved, isMediaBootstrapPending])
 
   const modeContent = useMemo(() => {
+    if (!hydrationResolved || isMediaBootstrapPending) {
+      return (
+        <div className="grid h-full min-h-[420px] place-content-center rounded-xl border border-white/10 bg-black/24 px-4 text-center">
+          <div className="space-y-1.5">
+            <ShinyText
+              text={hydrationResolved ? "Подключаем медиа проекта..." : "Восстанавливаем проект..."}
+              speed={2.1}
+              className="text-sm text-zinc-200"
+            />
+            <p className="text-xs text-zinc-500">
+              {hydrationResolved
+                ? "Подтягиваем источник видео и синхронизируем рабочее состояние."
+                : "Загружаем видео, клипы и контекст из сохраненного состояния."}
+            </p>
+          </div>
+        </div>
+      )
+    }
     if (activeMode === "video") {
       return <VideoMode controller={controller} videoRef={videoRef} onOpenFilePicker={openFilePicker} />
     }
@@ -128,9 +208,21 @@ export function WorkspaceView({
       return <InsightsMode controller={controller} project={project} />
     }
     return <ThumbnailsMode controller={controller} />
-  }, [activeMode, controller, handleModeChange, project])
+  }, [activeMode, controller, handleModeChange, hydrationResolved, isMediaBootstrapPending, project])
 
   const contextContent = useMemo(() => {
+    if (!hydrationResolved || isMediaBootstrapPending) {
+      return (
+        <div className="rounded-xl border border-white/10 bg-black/24 px-3 py-3">
+          <p className="text-xs text-zinc-400">Системный контекст</p>
+          <p className="mt-1 text-xs text-zinc-500">
+            {hydrationResolved
+              ? "Подключаем источник видео и проверяем контекст проекта."
+              : "Поднимаем сохранённые данные проекта и рабочее окружение."}
+          </p>
+        </div>
+      )
+    }
     if (activeMode === "video") {
       return (
         <VideoContextPanel
@@ -161,7 +253,7 @@ export function WorkspaceView({
       return <InsightsContextPanel controller={controller} project={project} />
     }
     return <ThumbnailsContextPanel controller={controller} />
-  }, [activeMode, controller, handleModeChange, project])
+  }, [activeMode, controller, handleModeChange, hydrationResolved, isMediaBootstrapPending, project])
 
   useEffect(() => {
     let cancelled = false
@@ -175,20 +267,38 @@ export function WorkspaceView({
           return
         }
 
-        if (workspaceState?.version === 1) {
+        const hasWorkspaceState = workspaceState?.version === 1
+        const shouldHydrateWorkspaceState =
+          hasWorkspaceState &&
+          hasMeaningfulWorkspaceState(workspaceState, project.sourceType, project.sourceUrl)
+        hasHydratedWorkspaceStateRef.current = shouldHydrateWorkspaceState
+        if (shouldHydrateWorkspaceState) {
           hydrateSessionState(workspaceState)
+          lastWorkspaceSnapshotRef.current = JSON.stringify(workspaceState)
+          pendingWorkspaceSnapshotRef.current = null
+          pendingWorkspacePayloadRef.current = null
+        } else {
+          lastWorkspaceSnapshotRef.current = ""
+          pendingWorkspaceSnapshotRef.current = null
+          pendingWorkspacePayloadRef.current = null
         }
 
         if (resumeState) {
+          const normalizedResumeTime = Number(resumeState.currentTime.toFixed(1))
+          const resumeSnapshot = `${resumeState.activeMode}|${normalizedResumeTime}|${resumeState.activeClipId ?? ""}`
+          lastResumeSnapshotRef.current = resumeSnapshot
+          pendingResumeSnapshotRef.current = null
+          pendingResumePayloadRef.current = null
+
           if (!initialMode && !manualModeChangeRef.current && isWorkspaceMode(resumeState.activeMode)) {
             setActiveMode(resumeState.activeMode)
           }
           if (resumeState.activeClipId) {
             setActiveClipId(resumeState.activeClipId)
           }
-          if (Number.isFinite(resumeState.currentTime) && resumeState.currentTime > 0) {
-            resumeSeekRef.current = resumeState.currentTime
-            setCurrentTime(resumeState.currentTime)
+          if (Number.isFinite(normalizedResumeTime) && normalizedResumeTime > 0) {
+            resumeSeekRef.current = normalizedResumeTime
+            setCurrentTime(normalizedResumeTime)
           }
         }
       })
@@ -204,35 +314,35 @@ export function WorkspaceView({
     return () => {
       cancelled = true
     }
-  }, [hydrateSessionState, initialMode, project.id, setActiveClipId, setCurrentTime])
+  }, [
+    hydrateSessionState,
+    initialMode,
+    project.id,
+    project.sourceType,
+    project.sourceUrl,
+    setActiveClipId,
+    setCurrentTime,
+  ])
 
   useEffect(() => {
-    if (!project.importedMediaPath && !project.sourceUrl) {
+    if (!hydrationResolved) {
       return
     }
-    if (project.sourceType === "youtube" && !project.importedMediaPath) {
-      return
-    }
-    if (controller.media.videoUrl) {
-      const isStaleYoutubePageUrl =
-        project.sourceType === "youtube" &&
-        Boolean(project.sourceUrl) &&
-        controller.media.videoUrl === project.sourceUrl
-      if (!isStaleYoutubePageUrl) {
-        return
-      }
-    }
-    const sourceCandidate = project.importedMediaPath ?? project.sourceUrl
+    const sourceCandidate = resolvedProjectSourceCandidate
     if (!sourceCandidate) {
       return
     }
-
-    setImportedVideoPath(sourceCandidate)
+    if (controller.media.videoUrl && !hasStaleYoutubeSourceUrl) {
+      return
+    }
+    setImportedVideoPath(sourceCandidate, {
+      preserveWorkspaceState: hasHydratedWorkspaceStateRef.current,
+    })
   }, [
     controller.media.videoUrl,
-    project.importedMediaPath,
-    project.sourceType,
-    project.sourceUrl,
+    hasStaleYoutubeSourceUrl,
+    hydrationResolved,
+    resolvedProjectSourceCandidate,
     setImportedVideoPath,
   ])
 
@@ -266,32 +376,6 @@ export function WorkspaceView({
     }
   }, [controller.media.videoUrl, setCurrentTime])
 
-  useEffect(() => {
-    if (!hydrationResolved) {
-      return
-    }
-    if (controller.transcript.isTranscribing) {
-      return
-    }
-    const payload = exportSessionState()
-    const snapshot = JSON.stringify(payload)
-    if (snapshot === lastWorkspaceSnapshotRef.current) {
-      return
-    }
-    const timerId = window.setTimeout(() => {
-      void saveProjectWorkspaceState(project.id, payload).then(() => {
-        lastWorkspaceSnapshotRef.current = snapshot
-      }).catch((error) => {
-        console.error("Failed to persist workspace state:", error)
-      })
-    }, 880)
-
-    return () => {
-      window.clearTimeout(timerId)
-    }
-  }, [controller.transcript.isTranscribing, exportSessionState, hydrationResolved, project.id])
-
-  const roundedCurrentTime = Number(controller.media.currentTime.toFixed(1))
   const sourceLabel =
     project.sourceType === "youtube"
       ? "YouTube"
@@ -311,7 +395,11 @@ export function WorkspaceView({
   )
   const compactStatus = controller.ai.isAnyProcessing
     ? "ИИ обновляет блоки и метрики..."
-    : `${sourceLabel} · ${sourceStatusLabel} · ${Math.max(0, activeDuration)} с · клипы ${controller.clips.length}`
+    : !hydrationResolved
+      ? "Восстанавливаем состояние проекта..."
+      : isMediaBootstrapPending
+        ? "Подключаем медиа проекта..."
+      : `${sourceLabel} · ${sourceStatusLabel} · ${Math.max(0, activeDuration)} с · клипы ${controller.clips.length}`
   const openProjectMediaLocation = useCallback(async () => {
     const mediaPath = project.importedMediaPath?.trim()
     if (!mediaPath) {
@@ -348,35 +436,259 @@ export function WorkspaceView({
     }
   }, [pushToast])
 
+  const reportPersistenceError = useCallback(
+    (scope: string, error: unknown) => {
+      console.error(`Failed to persist ${scope}:`, error)
+      const now = Date.now()
+      if (now - persistErrorReportedAtRef.current < 6000) {
+        return
+      }
+      persistErrorReportedAtRef.current = now
+      pushToast({
+        title: "Не удалось сохранить изменения",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Проверьте доступ к хранилищу проекта и повторите попытку.",
+        tone: "error",
+        durationMs: 3600,
+      })
+    },
+    [pushToast],
+  )
+
+  const persistWorkspaceSnapshot = useCallback(
+    (payload: WorkspacePersistedState, snapshot: string) => {
+      pendingWorkspaceSnapshotRef.current = snapshot
+      pendingWorkspacePayloadRef.current = payload
+      return saveProjectWorkspaceState(project.id, payload)
+        .then(() => {
+          lastWorkspaceSnapshotRef.current = snapshot
+          if (pendingWorkspaceSnapshotRef.current === snapshot) {
+            pendingWorkspaceSnapshotRef.current = null
+            pendingWorkspacePayloadRef.current = null
+          }
+        })
+        .catch((error) => {
+          reportPersistenceError("workspace state", error)
+        })
+    },
+    [project.id, reportPersistenceError],
+  )
+
+  const buildResumePayload = useCallback(
+    (): Pick<ProjectResumeState, "activeMode" | "currentTime" | "activeClipId"> => ({
+      activeMode,
+      currentTime: Number(controller.media.currentTime.toFixed(1)),
+      activeClipId: controller.activeClipId,
+    }),
+    [activeMode, controller.activeClipId, controller.media.currentTime],
+  )
+
+  const persistResumeSnapshot = useCallback(
+    (
+      payload: Pick<ProjectResumeState, "activeMode" | "currentTime" | "activeClipId">,
+      snapshot: string,
+    ) => {
+      pendingResumeSnapshotRef.current = snapshot
+      pendingResumePayloadRef.current = payload
+      return saveProjectResumeState(project.id, payload)
+        .then(() => {
+          lastResumeSnapshotRef.current = snapshot
+          if (pendingResumeSnapshotRef.current === snapshot) {
+            pendingResumeSnapshotRef.current = null
+            pendingResumePayloadRef.current = null
+          }
+        })
+        .catch((error) => {
+          reportPersistenceError("resume state", error)
+        })
+    },
+    [project.id, reportPersistenceError],
+  )
+
+  const flushPersistence = useCallback(() => {
+    if (!hydrationResolved) {
+      return
+    }
+
+    const workspacePayload = pendingWorkspacePayloadRef.current ?? exportSessionState()
+    const workspaceSnapshot =
+      pendingWorkspaceSnapshotRef.current ?? JSON.stringify(workspacePayload)
+    if (workspaceSnapshot !== lastWorkspaceSnapshotRef.current) {
+      void persistWorkspaceSnapshot(workspacePayload, workspaceSnapshot)
+    }
+
+    const resumePayload = pendingResumePayloadRef.current ?? buildResumePayload()
+    const resumeSnapshot =
+      pendingResumeSnapshotRef.current ??
+      `${resumePayload.activeMode}|${resumePayload.currentTime}|${resumePayload.activeClipId ?? ""}`
+    if (resumeSnapshot !== lastResumeSnapshotRef.current) {
+      void persistResumeSnapshot(resumePayload, resumeSnapshot)
+    }
+  }, [
+    buildResumePayload,
+    exportSessionState,
+    hydrationResolved,
+    persistResumeSnapshot,
+    persistWorkspaceSnapshot,
+  ])
+
+  useEffect(() => {
+    flushPersistenceRef.current = flushPersistence
+  }, [flushPersistence])
+
+  useEffect(() => {
+    lastProjectMetricsSnapshotRef.current = `${project.clips}|${project.durationSeconds}`
+  }, [project.clips, project.durationSeconds, project.id])
+
   useEffect(() => {
     if (!hydrationResolved) {
       return
     }
-    const resumeSnapshot = `${activeMode}|${roundedCurrentTime}|${controller.activeClipId ?? ""}`
-    if (resumeSnapshot === lastResumeSnapshotRef.current) {
+    if (controller.transcript.isTranscribing) {
       return
     }
+    const payload = exportSessionState()
+    const snapshot = JSON.stringify(payload)
+    if (
+      snapshot === lastWorkspaceSnapshotRef.current ||
+      snapshot === pendingWorkspaceSnapshotRef.current
+    ) {
+      return
+    }
+    pendingWorkspaceSnapshotRef.current = snapshot
+    pendingWorkspacePayloadRef.current = payload
+
     const timerId = window.setTimeout(() => {
-      void saveProjectResumeState(project.id, {
-        activeMode,
-        currentTime: roundedCurrentTime,
-        activeClipId: controller.activeClipId,
-      }).then(() => {
-        lastResumeSnapshotRef.current = resumeSnapshot
-      }).catch((error) => {
-        console.error("Failed to persist project resume state:", error)
-      })
+      void persistWorkspaceSnapshot(payload, snapshot)
+    }, 880)
+
+    return () => {
+      window.clearTimeout(timerId)
+    }
+  }, [
+    controller.transcript.isTranscribing,
+    exportSessionState,
+    hydrationResolved,
+    persistWorkspaceSnapshot,
+  ])
+
+  useEffect(() => {
+    if (!hydrationResolved) {
+      return
+    }
+    const payload = exportSessionState()
+    const snapshot = JSON.stringify(payload)
+    if (
+      snapshot === lastWorkspaceSnapshotRef.current ||
+      snapshot === pendingWorkspaceSnapshotRef.current
+    ) {
+      return
+    }
+    pendingWorkspaceSnapshotRef.current = snapshot
+    pendingWorkspacePayloadRef.current = payload
+
+    const timerId = window.setTimeout(() => {
+      void persistWorkspaceSnapshot(payload, snapshot)
+    }, 180)
+
+    return () => {
+      window.clearTimeout(timerId)
+    }
+  }, [
+    controller.activeClipId,
+    controller.clips,
+    exportSessionState,
+    hydrationResolved,
+    persistWorkspaceSnapshot,
+  ])
+
+  useEffect(() => {
+    if (!hydrationResolved) {
+      return
+    }
+    const resumePayload = buildResumePayload()
+    const resumeSnapshot =
+      `${resumePayload.activeMode}|${resumePayload.currentTime}|${resumePayload.activeClipId ?? ""}`
+    if (
+      resumeSnapshot === lastResumeSnapshotRef.current ||
+      resumeSnapshot === pendingResumeSnapshotRef.current
+    ) {
+      return
+    }
+    pendingResumeSnapshotRef.current = resumeSnapshot
+    pendingResumePayloadRef.current = resumePayload
+
+    const timerId = window.setTimeout(() => {
+      void persistResumeSnapshot(resumePayload, resumeSnapshot)
     }, 960)
 
     return () => {
       window.clearTimeout(timerId)
     }
   }, [
-    activeMode,
-    controller.activeClipId,
+    buildResumePayload,
     hydrationResolved,
+    persistResumeSnapshot,
+  ])
+
+  useEffect(() => {
+    const flushNow = () => {
+      flushPersistenceRef.current?.()
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushNow()
+      }
+    }
+
+    window.addEventListener("beforeunload", flushNow)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+
+    return () => {
+      window.removeEventListener("beforeunload", flushNow)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      flushNow()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hydrationResolved || !onProjectPatch) {
+      return
+    }
+
+    if (
+      !hasHydratedWorkspaceStateRef.current &&
+      controller.clips.length === 0 &&
+      project.clips > 0
+    ) {
+      return
+    }
+
+    const clipsCount = controller.clips.length
+    const durationSeconds =
+      controller.media.duration > 0
+        ? Math.max(0, Math.round(controller.media.duration))
+        : Math.max(0, project.durationSeconds)
+
+    const snapshot = `${clipsCount}|${durationSeconds}`
+    if (snapshot === lastProjectMetricsSnapshotRef.current) {
+      return
+    }
+    lastProjectMetricsSnapshotRef.current = snapshot
+    onProjectPatch(project.id, {
+      clips: clipsCount,
+      durationSeconds,
+    })
+  }, [
+    controller.clips.length,
+    controller.media.duration,
+    hydrationResolved,
+    onProjectPatch,
+    project.clips,
+    project.durationSeconds,
     project.id,
-    roundedCurrentTime,
   ])
 
   return (
@@ -411,7 +723,10 @@ export function WorkspaceView({
             <Button
               variant="outline"
               className="border-white/15 bg-transparent text-zinc-200 hover:bg-white/10"
-              onClick={onBack}
+              onClick={() => {
+                flushPersistence()
+                onBack()
+              }}
             >
               <ArrowLeftIcon className="size-4" />
               Проекты
@@ -423,9 +738,17 @@ export function WorkspaceView({
           </div>
 
           <div className="flex min-w-0 items-center gap-2 md:max-w-[56%] md:justify-end">
-            <p className="hidden min-w-0 truncate text-xs text-zinc-500 xl:block">
-              {compactStatus}
-            </p>
+            <div className="hidden min-w-0 xl:block">
+              {activeMode === "video" && controller.ai.isAnyProcessing ? (
+                <ShinyText
+                  text="ИИ синхронизирует таймлайн, блоки и прогнозы виральности."
+                  speed={2.2}
+                  className="min-w-0 truncate text-xs text-zinc-400"
+                />
+              ) : (
+                <p className="min-w-0 truncate text-xs text-zinc-500">{compactStatus}</p>
+              )}
+            </div>
             <TooltipProvider>
               <div className="flex items-center gap-1">
                 <Tooltip>
@@ -463,7 +786,10 @@ export function WorkspaceView({
                       size="icon-xs"
                       variant="ghost"
                       className="text-zinc-400 hover:bg-white/8 hover:text-zinc-200"
-                      onClick={onOpenSettings}
+                      onClick={() => {
+                        flushPersistence()
+                        onOpenSettings()
+                      }}
                     >
                       <Settings2Icon className="size-3.5" />
                     </Button>

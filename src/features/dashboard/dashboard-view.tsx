@@ -43,7 +43,7 @@ const sectionText: Record<DashboardSection, { badge: string; title: string; desc
     updates: {
       badge: "Продукт",
       title: "Обновления",
-      description: "Что нового в ClipForge: функции, интерфейс и качество генерации.",
+      description: "Что нового в Cursed Clipper: функции, интерфейс и качество генерации.",
     },
     account: {
       badge: "Профиль",
@@ -155,6 +155,7 @@ export function DashboardView({
 
                 {activeSection === "news" ? (
                   <FeedView
+                    kind="news"
                     title="Новости рынка и контента"
                     description="Кураторская лента рекомендаций по контент-стратегии."
                     items={newsFeed}
@@ -163,6 +164,7 @@ export function DashboardView({
 
                 {activeSection === "updates" ? (
                   <FeedView
+                    kind="updates"
                     title="Обновления продукта"
                     description="Последние релизы, улучшения интерфейса и ИИ-пайплайна."
                     items={updatesFeed}

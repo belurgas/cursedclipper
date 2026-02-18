@@ -48,6 +48,30 @@ export type DashboardDataPayload = {
   updatesFeed: NewsItem[]
 }
 
+function normalizeWindowsExtendedPath(value?: string | null): string | undefined {
+  if (typeof value !== "string") {
+    return undefined
+  }
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  if (trimmed.startsWith("\\\\?\\UNC\\")) {
+    return `\\\\${trimmed.slice("\\\\?\\UNC\\".length)}`
+  }
+  if (trimmed.startsWith("\\\\?\\")) {
+    return trimmed.slice("\\\\?\\".length)
+  }
+  return trimmed
+}
+
+function normalizeProjectPathFields(project: Project): Project {
+  return {
+    ...project,
+    importedMediaPath: normalizeWindowsExtendedPath(project.importedMediaPath),
+  }
+}
+
 export type ProjectDraftSourcePayload = {
   sourceType?: ProjectSourceType
   sourceLabel?: string
@@ -264,9 +288,93 @@ export type ProjectResumeState = {
 }
 
 const workspaceStateStorageKey = (projectId: string) =>
-  `clipforge:workspace:${projectId}`
+  `cursed-clipper:workspace:${projectId}`
 const workspaceResumeStorageKey = (projectId: string) =>
+  `cursed-clipper:resume:${projectId}`
+// Legacy keys are kept for one-time migration after brand rename.
+const legacyWorkspaceStateStorageKey = (projectId: string) =>
+  `clipforge:workspace:${projectId}`
+const legacyWorkspaceResumeStorageKey = (projectId: string) =>
   `clipforge:resume:${projectId}`
+
+const writeLocalWorkspaceState = (
+  projectId: string,
+  state: WorkspacePersistedState,
+): string | null => {
+  if (typeof window === "undefined") {
+    return null
+  }
+  try {
+    const serialized = JSON.stringify(state)
+    window.localStorage.setItem(workspaceStateStorageKey(projectId), serialized)
+    return serialized
+  } catch {
+    return null
+  }
+}
+
+const readLocalWorkspaceState = (projectId: string): WorkspacePersistedState | null => {
+  if (typeof window === "undefined") {
+    return null
+  }
+  try {
+    const nextKey = workspaceStateStorageKey(projectId)
+    const legacyKey = legacyWorkspaceStateStorageKey(projectId)
+    const raw =
+      window.localStorage.getItem(nextKey) ?? window.localStorage.getItem(legacyKey)
+    if (!raw) {
+      return null
+    }
+    if (!window.localStorage.getItem(nextKey)) {
+      window.localStorage.setItem(nextKey, raw)
+      window.localStorage.removeItem(legacyKey)
+    }
+    return JSON.parse(raw) as WorkspacePersistedState
+  } catch {
+    return null
+  }
+}
+
+const writeLocalResumeState = (
+  projectId: string,
+  payload: Pick<ProjectResumeState, "activeMode" | "currentTime" | "activeClipId">,
+): ProjectResumeState | null => {
+  if (typeof window === "undefined") {
+    return null
+  }
+  try {
+    const next: ProjectResumeState = {
+      ...payload,
+      updatedAtUnix: Date.now(),
+    }
+    window.localStorage.setItem(workspaceResumeStorageKey(projectId), JSON.stringify(next))
+    return next
+  } catch {
+    return null
+  }
+}
+
+const readLocalResumeState = (projectId: string): ProjectResumeState | null => {
+  if (typeof window === "undefined") {
+    return null
+  }
+  try {
+    const nextKey = workspaceResumeStorageKey(projectId)
+    const legacyKey = legacyWorkspaceResumeStorageKey(projectId)
+    const raw =
+      window.localStorage.getItem(nextKey) ?? window.localStorage.getItem(legacyKey)
+    if (!raw) {
+      return null
+    }
+    if (!window.localStorage.getItem(nextKey)) {
+      window.localStorage.setItem(nextKey, raw)
+      window.localStorage.removeItem(legacyKey)
+    }
+    return JSON.parse(raw) as ProjectResumeState
+  } catch {
+    return null
+  }
+}
 
 const defaultPlatformSelection = ["pf_tiktok", "pf_shorts"]
 
@@ -312,7 +420,11 @@ export async function fetchDashboardData(): Promise<DashboardDataPayload> {
   }
 
   try {
-    return await invokeTauri<DashboardDataPayload>("get_dashboard_data")
+    const payload = await invokeTauri<DashboardDataPayload>("get_dashboard_data")
+    return {
+      ...payload,
+      projects: payload.projects.map(normalizeProjectPathFields),
+    }
   } catch (error) {
     console.error("Failed to load dashboard data from Rust backend:", error)
     return {
@@ -336,7 +448,7 @@ export async function createProjectDraftViaBackend(
   }
 
   try {
-    return await invokeTauri<Project>("create_project_draft", {
+    const project = await invokeTauri<Project>("create_project_draft", {
       name,
       description,
       sourceType: source?.sourceType,
@@ -353,8 +465,9 @@ export async function createProjectDraftViaBackend(
       sourceChannelId: source?.sourceChannelId,
       sourceChannelUrl: source?.sourceChannelUrl,
       sourceChannelFollowers: source?.sourceChannelFollowers,
-      importedMediaPath: source?.importedMediaPath,
+      importedMediaPath: normalizeWindowsExtendedPath(source?.importedMediaPath),
     })
+    return normalizeProjectPathFields(project)
   } catch (error) {
     console.error("Failed to create project via Rust backend:", error)
     return {
@@ -371,7 +484,12 @@ export async function updateProjectViaBackend(
   if (!isTauriRuntime()) {
     throw new Error("Обновление проекта доступно только в desktop runtime.")
   }
-  return invokeTauri<Project>("patch_project", { projectId, patch })
+  const payload = {
+    ...patch,
+    importedMediaPath: normalizeWindowsExtendedPath(patch.importedMediaPath),
+  }
+  const project = await invokeTauri<Project>("patch_project", { projectId, patch: payload })
+  return normalizeProjectPathFields(project)
 }
 
 export async function deleteProjectViaBackend(projectId: string): Promise<boolean> {
@@ -587,13 +705,13 @@ export async function saveProjectWorkspaceState(
   projectId: string,
   state: WorkspacePersistedState,
 ): Promise<void> {
+  const serialized = writeLocalWorkspaceState(projectId, state) ?? JSON.stringify(state)
   if (!isTauriRuntime()) {
-    window.localStorage.setItem(workspaceStateStorageKey(projectId), JSON.stringify(state))
     return
   }
   return invokeTauri<void>("save_project_workspace_state", {
     projectId,
-    stateJson: JSON.stringify(state),
+    stateJson: serialized,
   })
 }
 
@@ -601,25 +719,21 @@ export async function loadProjectWorkspaceState(
   projectId: string,
 ): Promise<WorkspacePersistedState | null> {
   if (!isTauriRuntime()) {
-    const raw = window.localStorage.getItem(workspaceStateStorageKey(projectId))
+    return readLocalWorkspaceState(projectId)
+  }
+
+  try {
+    const raw = await invokeTauri<string | null>("load_project_workspace_state", { projectId })
     if (!raw) {
-      return null
+      return readLocalWorkspaceState(projectId)
     }
     try {
       return JSON.parse(raw) as WorkspacePersistedState
     } catch {
-      return null
+      return readLocalWorkspaceState(projectId)
     }
-  }
-
-  const raw = await invokeTauri<string | null>("load_project_workspace_state", { projectId })
-  if (!raw) {
-    return null
-  }
-  try {
-    return JSON.parse(raw) as WorkspacePersistedState
   } catch {
-    return null
+    return readLocalWorkspaceState(projectId)
   }
 }
 
@@ -627,41 +741,46 @@ export async function saveProjectResumeState(
   projectId: string,
   payload: Pick<ProjectResumeState, "activeMode" | "currentTime" | "activeClipId">,
 ): Promise<ProjectResumeState> {
+  const localBackup = writeLocalResumeState(projectId, payload)
   if (!isTauriRuntime()) {
-    const next: ProjectResumeState = {
-      ...payload,
-      updatedAtUnix: Date.now(),
-    }
-    window.localStorage.setItem(workspaceResumeStorageKey(projectId), JSON.stringify(next))
-    return next
+    return (
+      localBackup ?? {
+        ...payload,
+        updatedAtUnix: Date.now(),
+      }
+    )
   }
 
-  return invokeTauri<ProjectResumeState>("save_project_resume_state", {
-    projectId,
-    activeMode: payload.activeMode,
-    currentTime: payload.currentTime,
-    activeClipId: payload.activeClipId ?? null,
-  })
+  try {
+    return await invokeTauri<ProjectResumeState>("save_project_resume_state", {
+      projectId,
+      activeMode: payload.activeMode,
+      currentTime: payload.currentTime,
+      activeClipId: payload.activeClipId ?? null,
+    })
+  } catch (error) {
+    if (localBackup) {
+      return localBackup
+    }
+    throw error
+  }
 }
 
 export async function loadProjectResumeState(
   projectId: string,
 ): Promise<ProjectResumeState | null> {
   if (!isTauriRuntime()) {
-    const raw = window.localStorage.getItem(workspaceResumeStorageKey(projectId))
-    if (!raw) {
-      return null
-    }
-    try {
-      return JSON.parse(raw) as ProjectResumeState
-    } catch {
-      return null
-    }
+    return readLocalResumeState(projectId)
   }
 
-  return invokeTauri<ProjectResumeState | null>("load_project_resume_state", {
-    projectId,
-  })
+  try {
+    const fromBackend = await invokeTauri<ProjectResumeState | null>("load_project_resume_state", {
+      projectId,
+    })
+    return fromBackend ?? readLocalResumeState(projectId)
+  } catch {
+    return readLocalResumeState(projectId)
+  }
 }
 
 export async function probeYoutubeFormats(
@@ -670,7 +789,7 @@ export async function probeYoutubeFormats(
   if (!isTauriRuntime()) {
     return {
       title: "Демо видео YouTube",
-      uploader: "ClipForge Demo",
+      uploader: "Cursed Clipper Demo",
       duration: 192,
       thumbnail: null,
       viewCount: 42_000,
@@ -678,7 +797,7 @@ export async function probeYoutubeFormats(
       commentCount: 180,
       uploadDate: "20260120",
       channelId: "demo-channel-id",
-      channelUrl: "https://youtube.com/@clipforge-demo",
+      channelUrl: "https://youtube.com/@cursedclipper-demo",
       channelFollowers: 120_000,
       formats: [
         {

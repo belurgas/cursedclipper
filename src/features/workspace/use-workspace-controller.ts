@@ -374,11 +374,17 @@ export function useWorkspaceController(projectId: string, projectName: string) {
   )
 
   const setImportedVideoPath = useCallback(
-    (mediaPath: string) => {
+    (
+      mediaPath: string,
+      options?: {
+        preserveWorkspaceState?: boolean
+      },
+    ) => {
       clearObjectUrl()
       stopStreaming()
       clearTimers()
       pendingPipelinePayloadRef.current = null
+      const preserveWorkspaceState = options?.preserveWorkspaceState ?? false
 
       const trimmedPath = mediaPath.trim()
       if (!trimmedPath) {
@@ -403,23 +409,31 @@ export function useWorkspaceController(projectId: string, projectName: string) {
 
       setVideoUrl(sourceUrl)
       setVideoName(fileName)
-      setDuration(0)
-      setCurrentTime(0)
-      setWords([])
-      setTranscriptBlocks([])
-      setSemanticBlocks([])
-      setVisibleWordCount(0)
-      visibleWordCountRef.current = 0
-      setIsTranscribing(false)
-      resetDerivedStates()
+      if (!preserveWorkspaceState) {
+        setDuration(0)
+        setCurrentTime(0)
+        setWords([])
+        setTranscriptBlocks([])
+        setSemanticBlocks([])
+        setVisibleWordCount(0)
+        visibleWordCountRef.current = 0
+        setIsTranscribing(false)
+        resetDerivedStates()
+      }
 
       const metadataProbe = document.createElement("video")
       metadataProbe.preload = "metadata"
       metadataProbe.src = sourceUrl
       metadataProbe.onloadedmetadata = () => {
         const detectedDuration = metadataProbe.duration || 0
-        setDuration(detectedDuration)
-        void startMockTranscription(detectedDuration || 120)
+        if (detectedDuration > 0) {
+          setDuration((current) =>
+            preserveWorkspaceState && current > 0 ? current : detectedDuration,
+          )
+        }
+        if (!preserveWorkspaceState) {
+          void startMockTranscription(detectedDuration || 120)
+        }
       }
     },
     [clearObjectUrl, clearTimers, resetDerivedStates, startMockTranscription, stopStreaming],
