@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { ChevronDownIcon, CopyIcon } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import type { ContentPlanIdea } from "@/app/types"
 import { SpotlightCard } from "@/shared/react-bits/spotlight-card"
@@ -12,10 +13,11 @@ type ContentPlanPanelProps = {
 }
 
 export function ContentPlanPanel({ ideas, processing }: ContentPlanPanelProps) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState<string | null>(ideas[0]?.id ?? null)
 
   const copyPlan = async (idea: ContentPlanIdea) => {
-    const payload = `${idea.title}\n${idea.angle}\nКаналы: ${idea.channels.join(", ")}\n${idea.scriptOutline}`
+    const payload = `${idea.title}\n${idea.angle}\n${t("contentPlanPanel.channelsPrefix")}: ${idea.channels.join(", ")}\n${idea.scriptOutline}`
     try {
       await navigator.clipboard.writeText(payload)
     } catch {
@@ -25,13 +27,13 @@ export function ContentPlanPanel({ ideas, processing }: ContentPlanPanelProps) {
 
   return (
     <SpotlightCard className="min-w-0 rounded-xl border border-white/12 bg-black/28 p-3">
-      <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Генератор контент-плана</p>
+      <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">{t("contentPlanPanel.title")}</p>
       <p className="mt-1 text-xs text-zinc-400">
-        Стратегические идеи публикаций, выровненные по смысловой динамике ролика.
+        {t("contentPlanPanel.description")}
       </p>
       {processing ? (
         <div className="mt-3 rounded-lg border border-white/10 bg-white/4 px-3 py-2">
-          <ShinyText text="Формируем недельную стратегию публикаций..." speed={2.2} className="text-xs" />
+          <ShinyText text={t("contentPlanPanel.processing")} speed={2.2} className="text-xs" />
         </div>
       ) : null}
 
@@ -65,13 +67,13 @@ export function ContentPlanPanel({ ideas, processing }: ContentPlanPanelProps) {
                     <p className="mt-2 text-xs leading-relaxed break-words text-zinc-400">{idea.scriptOutline}</p>
                     <button
                       onClick={() => copyPlan(idea)}
-                      className="mt-2 inline-flex items-center gap-1 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/10"
-                    >
-                      <CopyIcon className="size-3" />
-                      Копировать план
-                    </button>
-                  </motion.div>
-                ) : null}
+                    className="mt-2 inline-flex items-center gap-1 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/10"
+                  >
+                    <CopyIcon className="size-3" />
+                    {t("contentPlanPanel.copyPlan")}
+                  </button>
+                </motion.div>
+              ) : null}
               </AnimatePresence>
             </div>
           )

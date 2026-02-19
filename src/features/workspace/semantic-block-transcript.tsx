@@ -1,5 +1,6 @@
 import { memo, useMemo, useRef } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
+import { useTranslation } from "react-i18next"
 
 import { formatSeconds } from "@/app/mock-data"
 import type { TranscriptSemanticBlock, TranscriptWord, WordRange } from "@/app/types"
@@ -26,6 +27,8 @@ type SemanticBlockRowProps = {
   active: boolean
   selection: WordRange | null
   isTranscribing: boolean
+  waitingRecognitionText: string
+  extendingSegmentText: string
   onWordSelect: (index: number, extendSelection?: boolean) => void
   onBlockSelect: (startIndex: number, endIndex: number) => void
 }
@@ -41,6 +44,8 @@ const SemanticBlockRow = memo(function SemanticBlockRow({
   active,
   selection,
   isTranscribing,
+  waitingRecognitionText,
+  extendingSegmentText,
   onWordSelect,
   onBlockSelect,
 }: SemanticBlockRowProps) {
@@ -131,12 +136,12 @@ const SemanticBlockRow = memo(function SemanticBlockRow({
             })}
           </div>
         ) : (
-          <p className="text-xs text-zinc-500">Ожидание данных распознавания...</p>
+          <p className="text-xs text-zinc-500">{waitingRecognitionText}</p>
         )}
 
         {streaming ? (
           <div className="mt-2 rounded-md border border-white/10 bg-white/5 px-2 py-1">
-            <ShinyText text="ИИ дополняет сегмент..." speed={2.2} className="text-[11px]" />
+            <ShinyText text={extendingSegmentText} speed={2.2} className="text-[11px]" />
           </div>
         ) : null}
       </div>
@@ -155,6 +160,7 @@ export function SemanticBlockTranscript({
   onWordSelect,
   onBlockSelect,
 }: SemanticBlockTranscriptProps) {
+  const { t } = useTranslation()
   const parentRef = useRef<HTMLDivElement | null>(null)
 
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -179,9 +185,13 @@ export function SemanticBlockTranscript({
     <section className="flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between border-b border-white/10 px-3 py-2">
         <div>
-          <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Семантическая расшифровка</p>
+          <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">{t("semanticBlockTranscript.title")}</p>
           <p className="text-[11px] text-zinc-400">
-            {blocks.length} блоков · {visibleWordCount}/{words.length} слов
+            {t("semanticBlockTranscript.stats", {
+              blocks: blocks.length,
+              visible: visibleWordCount,
+              total: words.length,
+            })}
           </p>
         </div>
         <p className="text-xs text-zinc-400">{completion}%</p>
@@ -211,6 +221,8 @@ export function SemanticBlockTranscript({
                   active={activeBlockId === block.id}
                   selection={selection}
                   isTranscribing={isTranscribing}
+                  waitingRecognitionText={t("semanticBlockTranscript.waitingRecognition")}
+                  extendingSegmentText={t("semanticBlockTranscript.extendingSegment")}
                   onWordSelect={onWordSelect}
                   onBlockSelect={onBlockSelect}
                 />

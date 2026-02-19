@@ -11,14 +11,19 @@ export type WorkspaceMode = "video" | "clips" | "export" | "insights" | "thumbna
 
 export type WorkspaceModeConfig = {
   id: WorkspaceMode
-  label: string
+  labelKey:
+    | "workspace.modes.video"
+    | "workspace.modes.clips"
+    | "workspace.modes.export"
+    | "workspace.modes.insights"
+    | "workspace.modes.thumbnails"
   icon: LucideIcon
 }
 
 export const workspaceModes: WorkspaceModeConfig[] = [
-  { id: "video", label: "Редактор", icon: ClapperboardIcon },
-  { id: "clips", label: "Клипы", icon: ScissorsLineDashedIcon },
-  { id: "insights", label: "Аналитика", icon: LightbulbIcon },
-  { id: "thumbnails", label: "Обложки", icon: SparklesIcon },
-  { id: "export", label: "Экспорт", icon: DownloadIcon },
+  { id: "video", labelKey: "workspace.modes.video", icon: ClapperboardIcon },
+  { id: "clips", labelKey: "workspace.modes.clips", icon: ScissorsLineDashedIcon },
+  { id: "insights", labelKey: "workspace.modes.insights", icon: LightbulbIcon },
+  { id: "thumbnails", labelKey: "workspace.modes.thumbnails", icon: SparklesIcon },
+  { id: "export", labelKey: "workspace.modes.export", icon: DownloadIcon },
 ]

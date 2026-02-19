@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion"
 import { SparklesIcon } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import type { NewsItem, Project } from "@/app/types"
 import { Card, CardContent } from "@/components/ui/card"
@@ -28,35 +29,6 @@ type DashboardViewProps = {
   onOpenProject: (projectId: string) => void
 }
 
-const sectionText: Record<DashboardSection, { badge: string; title: string; description: string }> =
-  {
-    projects: {
-      badge: "ИИ-монтаж",
-      title: "Проекты",
-      description: "Создавайте, уточняйте и экспортируйте клипы с семантической точностью.",
-    },
-    news: {
-      badge: "Лента",
-      title: "Новости",
-      description: "Тренды и инсайты по коротким форматам и ИИ-клиппингу.",
-    },
-    updates: {
-      badge: "Продукт",
-      title: "Обновления",
-      description: "Что нового в Cursed Clipper: функции, интерфейс и качество генерации.",
-    },
-    account: {
-      badge: "Профиль",
-      title: "Аккаунт",
-      description: "Управление профилем, уведомлениями и безопасностью.",
-    },
-    settings: {
-      badge: "Система",
-      title: "Настройки",
-      description: "Конфигурация runtime, импортов и инструментов медиа-обработки.",
-    },
-  }
-
 export function DashboardView({
   projects,
   newsFeed,
@@ -70,6 +42,35 @@ export function DashboardView({
   onDeleteProject,
   onOpenProject,
 }: DashboardViewProps) {
+  const { t } = useTranslation()
+  const sectionText: Record<DashboardSection, { badge: string; title: string; description: string }> =
+    {
+      projects: {
+        badge: t("dashboard.sectionText.projects.badge"),
+        title: t("dashboard.sectionText.projects.title"),
+        description: t("dashboard.sectionText.projects.description"),
+      },
+      news: {
+        badge: t("dashboard.sectionText.news.badge"),
+        title: t("dashboard.sectionText.news.title"),
+        description: t("dashboard.sectionText.news.description"),
+      },
+      updates: {
+        badge: t("dashboard.sectionText.updates.badge"),
+        title: t("dashboard.sectionText.updates.title"),
+        description: t("dashboard.sectionText.updates.description"),
+      },
+      account: {
+        badge: t("dashboard.sectionText.account.badge"),
+        title: t("dashboard.sectionText.account.title"),
+        description: t("dashboard.sectionText.account.description"),
+      },
+      settings: {
+        badge: t("dashboard.sectionText.settings.badge"),
+        title: t("dashboard.sectionText.settings.title"),
+        description: t("dashboard.sectionText.settings.description"),
+      },
+    }
   return (
     <section className="relative mx-auto h-full w-full min-h-0 overflow-visible px-4 pb-5 pt-12 lg:px-6 lg:pt-14">
       <AmbientBackground variant="dashboard" />
@@ -84,6 +85,7 @@ export function DashboardView({
       >
         <Sidebar
           news={newsFeed}
+          projects={projects}
           activeSection={activeSection}
           onSectionChange={onSectionChange}
         />
@@ -107,7 +109,7 @@ export function DashboardView({
               ) : (
                 <div className="rounded-lg border border-white/10 bg-black/24 px-3 py-2">
                   <ShinyText
-                    text="ИИ-ассистент обновляет данные в фоновом режиме."
+                    text={t("dashboard.assistantBackground")}
                     speed={2.3}
                     className="text-xs"
                   />
@@ -117,16 +119,16 @@ export function DashboardView({
           </Card>
 
           <section
-            className="min-h-0 flex-1 overflow-x-visible overflow-y-auto pr-1 pb-3 lg:pr-2"
+            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pr-1 pb-3 lg:pr-2"
             data-scroll-region="true"
           >
-            <AnimatePresence mode="wait">
+            <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={activeSection}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.22, ease: "easeOut" }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
                 className="space-y-4"
               >
                 {activeSection === "projects" ? (
@@ -144,9 +146,21 @@ export function DashboardView({
 
                     {projects.length === 0 ? (
                       <Card className="border-white/12 bg-white/4 backdrop-blur-xl">
-                        <CardContent className="flex items-center justify-center gap-2 py-10 text-zinc-400">
-                          <SparklesIcon className="size-4" />
-                          Создайте первый проект, чтобы начать сборку клипов.
+                        <CardContent className="py-12">
+                          <div className="mx-auto flex max-w-xl flex-col items-center text-center">
+                            <div className="grid size-11 place-content-center rounded-xl border border-white/15 bg-black/24">
+                              <SparklesIcon className="size-5 text-zinc-200" />
+                            </div>
+                            <h3 className="mt-4 text-lg font-semibold text-zinc-100">
+                              {t("dashboard.emptyProjectsTitle")}
+                            </h3>
+                            <p className="mt-2 text-sm text-zinc-400">
+                              {t("dashboard.emptyProjectsDescription")}
+                            </p>
+                            <div className="mt-5">
+                              <CreateProjectDialog onCreate={onCreateProject} onUpdateProject={onUpdateProject} />
+                            </div>
+                          </div>
                         </CardContent>
                       </Card>
                     ) : null}
@@ -156,8 +170,8 @@ export function DashboardView({
                 {activeSection === "news" ? (
                   <FeedView
                     kind="news"
-                    title="Новости рынка и контента"
-                    description="Кураторская лента рекомендаций по контент-стратегии."
+                    title={t("dashboard.sections.news")}
+                    description={t("dashboard.sectionText.news.description")}
                     items={newsFeed}
                   />
                 ) : null}
@@ -165,8 +179,8 @@ export function DashboardView({
                 {activeSection === "updates" ? (
                   <FeedView
                     kind="updates"
-                    title="Обновления продукта"
-                    description="Последние релизы, улучшения интерфейса и ИИ-пайплайна."
+                    title={t("dashboard.sections.updates")}
+                    description={t("dashboard.sectionText.updates.description")}
                     items={updatesFeed}
                   />
                 ) : null}
@@ -174,7 +188,7 @@ export function DashboardView({
                 {activeSection === "account" ? (
                   <AccountView
                     onLogout={() => {
-                      console.info("Сессия завершена (мок).")
+                      console.info("Session ended (mock).")
                     }}
                   />
                 ) : null}

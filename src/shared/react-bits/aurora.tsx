@@ -130,7 +130,7 @@ export function Aurora({
     const renderer = new Renderer({
       alpha: true,
       premultipliedAlpha: true,
-      antialias: true,
+      antialias: false,
     })
     const gl = renderer.gl
     let program: ProgramRef = null
@@ -144,10 +144,13 @@ export function Aurora({
       }
     }
 
-    gl.clearColor(0, 0, 0, 0)
+    // Keep a dark opaque backing color to avoid compositor flashes
+    // while the first frames are being rendered.
+    gl.clearColor(0.02, 0.03, 0.04, 1)
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     gl.canvas.style.backgroundColor = "transparent"
+    gl.canvas.style.display = "block"
 
     window.addEventListener("resize", resize)
 

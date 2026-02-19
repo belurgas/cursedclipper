@@ -1,4 +1,5 @@
 import { BellIcon, LogOutIcon, ShieldCheckIcon, UserCircle2Icon } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,34 +10,35 @@ type AccountViewProps = {
 }
 
 export function AccountView({ onLogout }: AccountViewProps) {
+  const { t } = useTranslation()
   return (
     <div className="grid gap-4 xl:grid-cols-2">
       <Card className="glass-panel border-white/12 bg-white/3 backdrop-blur-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base text-zinc-100">
             <UserCircle2Icon className="size-4 text-zinc-300" />
-            Профиль аккаунта
+            {t("account.titleProfile")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-xl border border-white/10 bg-black/24 p-3">
             <p className="text-sm font-medium text-zinc-100">Kali Forge</p>
-            <p className="mt-0.5 text-xs text-zinc-400">Руководитель креативных операций</p>
+            <p className="mt-0.5 text-xs text-zinc-400">{t("account.role")}</p>
             <div className="mt-2 flex items-center gap-2">
-              <Badge className="bg-zinc-100/12 text-zinc-200">Профессиональный</Badge>
+              <Badge className="bg-zinc-100/12 text-zinc-200">{t("account.planPro")}</Badge>
               <Badge variant="outline" className="border-white/20 text-zinc-300">
-                Команда: 7
+                {t("account.team", { count: 7 })}
               </Badge>
             </div>
           </div>
 
           <div className="grid gap-2 text-sm">
             <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-              <p className="text-zinc-400">Эл. почта</p>
+              <p className="text-zinc-400">{t("account.email")}</p>
               <p className="text-zinc-200">kali@cursedclipper.ai</p>
             </div>
             <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-              <p className="text-zinc-400">Часовой пояс</p>
+              <p className="text-zinc-400">{t("account.timezone")}</p>
               <p className="text-zinc-200">Europe/Moscow</p>
             </div>
           </div>
@@ -47,18 +49,18 @@ export function AccountView({ onLogout }: AccountViewProps) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base text-zinc-100">
             <ShieldCheckIcon className="size-4 text-zinc-300" />
-            Настройки и безопасность
+            {t("account.securityTitle")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="rounded-lg border border-white/10 bg-black/24 p-3">
-            <p className="text-sm text-zinc-100">Двухфакторная защита</p>
-            <p className="mt-1 text-xs text-zinc-400">Включена. Последняя проверка: сегодня.</p>
+            <p className="text-sm text-zinc-100">{t("account.twoFactorTitle")}</p>
+            <p className="mt-1 text-xs text-zinc-400">{t("account.twoFactorDescription")}</p>
           </div>
           <div className="rounded-lg border border-white/10 bg-black/24 p-3">
-            <p className="text-sm text-zinc-100">Уведомления</p>
+            <p className="text-sm text-zinc-100">{t("account.notificationsTitle")}</p>
             <p className="mt-1 text-xs text-zinc-400">
-              Получать оповещения о новых релизах ИИ-инструментов.
+              {t("account.notificationsDescription")}
             </p>
             <Button
               size="sm"
@@ -66,7 +68,7 @@ export function AccountView({ onLogout }: AccountViewProps) {
               className="mt-2 border-white/15 bg-transparent text-zinc-200 hover:bg-white/10"
             >
               <BellIcon className="size-3.5" />
-              Управлять уведомлениями
+              {t("account.manageNotifications")}
             </Button>
           </div>
 
@@ -75,7 +77,7 @@ export function AccountView({ onLogout }: AccountViewProps) {
             onClick={onLogout}
           >
             <LogOutIcon className="size-4" />
-            Выйти из аккаунта
+            {t("account.logout")}
           </Button>
         </CardContent>
       </Card>

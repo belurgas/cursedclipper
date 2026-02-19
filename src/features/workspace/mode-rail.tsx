@@ -1,4 +1,5 @@
 import { motion } from "framer-motion"
+import { useTranslation } from "react-i18next"
 
 import {
   Tooltip,
@@ -15,6 +16,7 @@ type ModeRailProps = {
 }
 
 export function ModeRail({ activeMode, onModeChange }: ModeRailProps) {
+  const { t } = useTranslation()
   return (
     <TooltipProvider>
       <aside className="glass-panel relative z-30 flex h-auto w-full flex-row items-center justify-center gap-2 rounded-2xl border border-white/12 bg-white/4 p-2 backdrop-blur-xl lg:h-full lg:w-16 lg:flex-col lg:justify-start lg:py-3">
@@ -27,7 +29,7 @@ export function ModeRail({ activeMode, onModeChange }: ModeRailProps) {
                 <button
                   onClick={() => onModeChange(mode.id)}
                   className="group/rail relative flex h-10 w-10 items-center justify-center rounded-lg outline-none"
-                  aria-label={mode.label}
+                  aria-label={t(mode.labelKey)}
                 >
                   {isActive ? (
                     <motion.div
@@ -44,7 +46,7 @@ export function ModeRail({ activeMode, onModeChange }: ModeRailProps) {
                   />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">{mode.label}</TooltipContent>
+              <TooltipContent side="right">{t(mode.labelKey)}</TooltipContent>
             </Tooltip>
           )
         })}

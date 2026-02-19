@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 
 import { formatSeconds } from "@/app/mock-data"
@@ -22,6 +22,14 @@ type SmartTimelineProps = {
   onSeek: (time: number) => void
   onSelectionChange: (range: TimeRange | null) => void
   onClipSelect?: (clipId: string) => void
+  onClipTimingChange?: (
+    clipId: string,
+    range: TimeRange,
+    options?: {
+      recordHistory?: boolean
+      rippleMove?: boolean
+    },
+  ) => void
   allowRangeSelection?: boolean
   showSemanticBlocks?: boolean
   interactiveClips?: boolean
@@ -33,8 +41,34 @@ type HoverState = {
   x: number
 }
 
+type ClipEditMode = "move" | "resize-start" | "resize-end"
+
+type ClipEditState = {
+  pointerId: number
+  clipId: string
+  mode: ClipEditMode
+  originClientX: number
+  initialStart: number
+  initialEnd: number
+  minStart: number
+  maxStart: number
+  minEnd: number
+  maxEnd: number
+  snapPoints: number[]
+  moved: boolean
+  lastRange: TimeRange
+  captureTarget: HTMLElement
+}
+
+type PendingClipChange = {
+  clipId: string
+  range: TimeRange
+  rippleMove: boolean
+}
+
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
+const MIN_CLIP_DURATION_SECONDS = 0.35
 
 const toPercent = (time: number, duration: number) => {
   if (duration <= 0) {
@@ -48,6 +82,26 @@ const normalizeRange = (start: number, end: number): TimeRange => ({
   end: Math.max(start, end),
 })
 
+const findClosestSnapPoint = (
+  value: number,
+  points: number[],
+  threshold: number,
+): number | null => {
+  if (points.length === 0 || threshold <= 0) {
+    return null
+  }
+  let closest: number | null = null
+  let distance = Number.POSITIVE_INFINITY
+  for (const point of points) {
+    const delta = Math.abs(point - value)
+    if (delta <= threshold && delta < distance) {
+      closest = point
+      distance = delta
+    }
+  }
+  return closest
+}
+
 export function SmartTimeline({
   duration,
   currentTime,
@@ -60,6 +114,7 @@ export function SmartTimeline({
   onSeek,
   onSelectionChange,
   onClipSelect,
+  onClipTimingChange,
   allowRangeSelection = true,
   showSemanticBlocks = true,
   interactiveClips = true,
@@ -70,14 +125,60 @@ export function SmartTimeline({
   const previewRangeRef = useRef<TimeRange | null>(null)
   const rangeRafRef = useRef<number | null>(null)
   const hoverRafRef = useRef<number | null>(null)
+  const clipRafRef = useRef<number | null>(null)
+  const clipEditRef = useRef<ClipEditState | null>(null)
+  const pendingClipChangeRef = useRef<PendingClipChange | null>(null)
   const pendingHoverRef = useRef<HoverState | null>(null)
-  const lastRangePaintRef = useRef(0)
+  const suppressClipClickUntilRef = useRef(0)
 
   const [dragging, setDragging] = useState(false)
   const [previewSelection, setPreviewSelection] = useState<TimeRange | null>(null)
   const [hover, setHover] = useState<HoverState | null>(null)
+  const [editingClipId, setEditingClipId] = useState<string | null>(null)
+  const [snapGuideTime, setSnapGuideTime] = useState<number | null>(null)
 
   const hasDuration = duration > 0
+  const timelineUpperBound = hasDuration ? duration : 10 * 60 * 60
+
+  const dispatchClipTimingChange = (
+    clipId: string,
+    range: TimeRange,
+    options?: {
+      recordHistory?: boolean
+      rippleMove?: boolean
+    },
+  ) => {
+    if (!onClipTimingChange) {
+      return
+    }
+    const nextRange = normalizeRange(range.start, range.end)
+    const recordHistory = options?.recordHistory ?? true
+    const rippleMove = options?.rippleMove ?? false
+    if (recordHistory) {
+      if (clipRafRef.current) {
+        window.cancelAnimationFrame(clipRafRef.current)
+        clipRafRef.current = null
+      }
+      pendingClipChangeRef.current = null
+      onClipTimingChange(clipId, nextRange, { recordHistory: true, rippleMove })
+      return
+    }
+    pendingClipChangeRef.current = { clipId, range: nextRange, rippleMove }
+    if (!clipRafRef.current) {
+      clipRafRef.current = window.requestAnimationFrame(() => {
+        clipRafRef.current = null
+        const pending = pendingClipChangeRef.current
+        pendingClipChangeRef.current = null
+        if (!pending) {
+          return
+        }
+        onClipTimingChange(pending.clipId, pending.range, {
+          recordHistory: false,
+          rippleMove: pending.rippleMove,
+        })
+      })
+    }
+  }
 
   const timeFromPointer = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect()
@@ -134,8 +235,183 @@ export function SmartTimeline({
       if (hoverRafRef.current) {
         window.cancelAnimationFrame(hoverRafRef.current)
       }
+      if (clipRafRef.current) {
+        window.cancelAnimationFrame(clipRafRef.current)
+      }
+      const activeClipEdit = clipEditRef.current
+      if (activeClipEdit && activeClipEdit.captureTarget.hasPointerCapture(activeClipEdit.pointerId)) {
+        activeClipEdit.captureTarget.releasePointerCapture(activeClipEdit.pointerId)
+      }
+      clipEditRef.current = null
+      setSnapGuideTime(null)
     }
   }, [])
+
+  const updateClipEdit = (clientX: number) => {
+    const edit = clipEditRef.current
+    const rect = trackRef.current?.getBoundingClientRect()
+    if (!edit || !rect || rect.width <= 0) {
+      return
+    }
+    const deltaTime = ((clientX - edit.originClientX) / rect.width) * duration
+    const minSnapThreshold = (duration / rect.width) * 8
+    const snapThreshold = Math.max(0.04, minSnapThreshold)
+    const initialLength = Math.max(
+      MIN_CLIP_DURATION_SECONDS,
+      edit.initialEnd - edit.initialStart,
+    )
+    let nextStart = edit.initialStart
+    let nextEnd = edit.initialEnd
+    let guideTime: number | null = null
+    if (edit.mode === "move") {
+      const unclampedStart = edit.initialStart + deltaTime
+      const start = clamp(unclampedStart, edit.minStart, edit.maxStart)
+      const end = start + initialLength
+      const leftSnap = findClosestSnapPoint(start, edit.snapPoints, snapThreshold)
+      const rightSnap = findClosestSnapPoint(end, edit.snapPoints, snapThreshold)
+      let snappedStart = start
+      let snapSide: "left" | "right" | null = null
+      if (leftSnap !== null || rightSnap !== null) {
+        const fromLeft =
+          leftSnap === null ? null : clamp(leftSnap, edit.minStart, edit.maxStart)
+        const fromRight =
+          rightSnap === null
+            ? null
+            : clamp(rightSnap - initialLength, edit.minStart, edit.maxStart)
+        if (fromLeft !== null && fromRight !== null) {
+          if (Math.abs(fromLeft - start) <= Math.abs(fromRight - start)) {
+            snappedStart = fromLeft
+            snapSide = "left"
+          } else {
+            snappedStart = fromRight
+            snapSide = "right"
+          }
+        } else if (fromLeft !== null) {
+          snappedStart = fromLeft
+          snapSide = "left"
+        } else if (fromRight !== null) {
+          snappedStart = fromRight
+          snapSide = "right"
+        }
+      }
+      if (snapSide === "left" && leftSnap !== null) {
+        guideTime = leftSnap
+      } else if (snapSide === "right" && rightSnap !== null) {
+        guideTime = rightSnap
+      }
+      nextStart = snappedStart
+      nextEnd = snappedStart + initialLength
+    } else if (edit.mode === "resize-start") {
+      const unclampedStart = edit.initialStart + deltaTime
+      const snapped = findClosestSnapPoint(unclampedStart, edit.snapPoints, snapThreshold)
+      const candidate = snapped ?? unclampedStart
+      nextStart = clamp(candidate, edit.minStart, edit.maxStart)
+      nextEnd = edit.initialEnd
+      if (snapped !== null) {
+        guideTime = snapped
+      }
+    } else {
+      const unclampedEnd = edit.initialEnd + deltaTime
+      const snapped = findClosestSnapPoint(unclampedEnd, edit.snapPoints, snapThreshold)
+      const candidate = snapped ?? unclampedEnd
+      nextStart = edit.initialStart
+      nextEnd = clamp(candidate, edit.minEnd, edit.maxEnd)
+      if (snapped !== null) {
+        guideTime = snapped
+      }
+    }
+    setSnapGuideTime(guideTime)
+    const normalized = normalizeRange(nextStart, nextEnd)
+    edit.lastRange = normalized
+    if (
+      Math.abs(normalized.start - edit.initialStart) > 0.0001 ||
+      Math.abs(normalized.end - edit.initialEnd) > 0.0001
+    ) {
+      edit.moved = true
+    }
+    dispatchClipTimingChange(edit.clipId, normalized, {
+      recordHistory: false,
+      rippleMove: false,
+    })
+  }
+
+  const finishClipEdit = (pointerId: number, commit: boolean) => {
+    const edit = clipEditRef.current
+    if (!edit || edit.pointerId !== pointerId) {
+      return
+    }
+    if (edit.captureTarget.hasPointerCapture(pointerId)) {
+      edit.captureTarget.releasePointerCapture(pointerId)
+    }
+    clipEditRef.current = null
+    setEditingClipId(null)
+    setSnapGuideTime(null)
+    if (
+      commit &&
+      edit.moved &&
+      (Math.abs(edit.lastRange.start - edit.initialStart) > 0.0001 ||
+        Math.abs(edit.lastRange.end - edit.initialEnd) > 0.0001)
+    ) {
+      dispatchClipTimingChange(edit.clipId, edit.lastRange, {
+        recordHistory: true,
+        rippleMove: false,
+      })
+      suppressClipClickUntilRef.current = performance.now() + 220
+    }
+  }
+
+  const startClipEdit = (
+    event: ReactPointerEvent<HTMLElement>,
+    clip: ClipSegment,
+    mode: ClipEditMode,
+  ) => {
+    if (!interactiveClips || !onClipTimingChange || !hasDuration || allowRangeSelection) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    const clipLength = Math.max(MIN_CLIP_DURATION_SECONDS, clip.end - clip.start)
+    const minStart = 0
+    const maxEnd = Math.max(timelineUpperBound, minStart + MIN_CLIP_DURATION_SECONDS)
+    const maxStartForMove = Math.max(minStart, maxEnd - clipLength)
+    const maxStartForResize = Math.max(minStart, clip.end - MIN_CLIP_DURATION_SECONDS)
+    const minEndForResize = clip.start + MIN_CLIP_DURATION_SECONDS
+    const captureTarget = trackRef.current ?? event.currentTarget
+    const staticSnapClips = clips.filter((item) => item.id !== clip.id)
+    const snapPoints = Array.from(
+      new Set(
+        [
+          currentTime,
+          0,
+          timelineUpperBound,
+          ...staticSnapClips.flatMap((item) =>
+            item.id === clip.id ? [] : [item.start, item.end],
+          ),
+        ]
+          .filter((point) => Number.isFinite(point))
+          .map((point) => clamp(point, 0, timelineUpperBound)),
+      ),
+    )
+    clipEditRef.current = {
+      pointerId: event.pointerId,
+      clipId: clip.id,
+      mode,
+      originClientX: event.clientX,
+      initialStart: clip.start,
+      initialEnd: clip.end,
+      minStart,
+      maxStart: mode === "move" ? maxStartForMove : maxStartForResize,
+      minEnd: minEndForResize,
+      maxEnd,
+      snapPoints,
+      moved: false,
+      lastRange: { start: clip.start, end: clip.end },
+      captureTarget,
+    }
+    setEditingClipId(clip.id)
+    setSnapGuideTime(null)
+    captureTarget.setPointerCapture(event.pointerId)
+  }
 
   return (
     <div className="space-y-2 rounded-xl border border-white/12 bg-black/28 p-3">
@@ -165,6 +441,11 @@ export function SmartTimeline({
           event.currentTarget.setPointerCapture(event.pointerId)
         }}
         onPointerMove={(event) => {
+          const clipEdit = clipEditRef.current
+          if (clipEdit && clipEdit.pointerId === event.pointerId) {
+            updateClipEdit(event.clientX)
+            return
+          }
           const rect = trackRef.current?.getBoundingClientRect()
           if (!rect) {
             return
@@ -176,17 +457,12 @@ export function SmartTimeline({
             const previousRange = previewRangeRef.current
             if (
               previousRange &&
-              Math.abs(previousRange.start - nextRange.start) < 0.04 &&
-              Math.abs(previousRange.end - nextRange.end) < 0.04
+              Math.abs(previousRange.start - nextRange.start) < 0.001 &&
+              Math.abs(previousRange.end - nextRange.end) < 0.001
             ) {
               return
             }
             previewRangeRef.current = nextRange
-            const now = performance.now()
-            if (now - lastRangePaintRef.current < 24) {
-              return
-            }
-            lastRangePaintRef.current = now
             if (!rangeRafRef.current) {
               rangeRafRef.current = window.requestAnimationFrame(() => {
                 rangeRafRef.current = null
@@ -246,6 +522,11 @@ export function SmartTimeline({
           }
         }}
         onPointerUp={(event) => {
+          const clipEdit = clipEditRef.current
+          if (clipEdit && clipEdit.pointerId === event.pointerId) {
+            finishClipEdit(event.pointerId, true)
+            return
+          }
           if (!hasDuration) {
             return
           }
@@ -256,7 +537,6 @@ export function SmartTimeline({
           const start = dragStartRef.current
           const end = previewRangeRef.current?.end ?? timeFromPointer(event.clientX)
           setDragging(false)
-          lastRangePaintRef.current = 0
           dragStartRef.current = null
           previewRangeRef.current = null
           setPreviewSelection(null)
@@ -277,11 +557,15 @@ export function SmartTimeline({
           onSelectionChange(range)
         }}
         onPointerCancel={(event) => {
+          const clipEdit = clipEditRef.current
+          if (clipEdit && clipEdit.pointerId === event.pointerId) {
+            finishClipEdit(event.pointerId, false)
+            return
+          }
           if (!allowRangeSelection) {
             return
           }
           setDragging(false)
-          lastRangePaintRef.current = 0
           dragStartRef.current = null
           previewRangeRef.current = null
           setPreviewSelection(null)
@@ -369,39 +653,81 @@ export function SmartTimeline({
           </div>
         ) : null}
 
-        {clipTrackMetrics.map(({ clip, start, width }) => (
+        {clipTrackMetrics.map(({ clip, start, width }) => {
+          const isEditing = editingClipId === clip.id
+          const canEditClip =
+            interactiveClips && !allowRangeSelection && hasDuration && Boolean(onClipTimingChange)
+          return (
+            <div
+              key={clip.id}
+              onPointerDown={(event) => {
+                if (!interactiveClips) {
+                  return
+                }
+                event.stopPropagation()
+                onClipSelect?.(clip.id)
+                if (canEditClip) {
+                  startClipEdit(event, clip, "move")
+                }
+              }}
+              onClick={() => {
+                if (!interactiveClips) {
+                  return
+                }
+                if (performance.now() < suppressClipClickUntilRef.current) {
+                  return
+                }
+                onClipSelect?.(clip.id)
+              }}
+              className={[
+                "absolute top-1 bottom-1 transform-gpu rounded-md border transition-colors duration-150",
+                activeClipId === clip.id || isEditing
+                  ? "border-zinc-100/75 bg-zinc-200/38"
+                  : "border-zinc-100/45 bg-zinc-200/22 hover:border-zinc-100/70 hover:bg-zinc-200/30",
+                interactiveClips
+                  ? canEditClip
+                    ? "cursor-grab active:cursor-grabbing"
+                    : "cursor-pointer"
+                  : "pointer-events-none",
+              ].join(" ")}
+              style={{
+                left: `${start}%`,
+                width: `${width}%`,
+                boxShadow:
+                  activeClipId === clip.id || isEditing
+                    ? "0 0 14px -7px rgba(219,227,240,0.92)"
+                    : "0 0 8px -8px rgba(219,227,240,0.55)",
+              }}
+              title={`${clip.title}: ${formatSeconds(clip.start)} - ${formatSeconds(clip.end)}`}
+            >
+              {canEditClip ? (
+                <>
+                  <div
+                    className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-l-md bg-white/10 hover:bg-white/18"
+                    onPointerDown={(event) => {
+                      onClipSelect?.(clip.id)
+                      startClipEdit(event, clip, "resize-start")
+                    }}
+                  />
+                  <div
+                    className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-r-md bg-white/10 hover:bg-white/18"
+                    onPointerDown={(event) => {
+                      onClipSelect?.(clip.id)
+                      startClipEdit(event, clip, "resize-end")
+                    }}
+                  />
+                </>
+              ) : null}
+            </div>
+          )
+        })}
+
+        {editingClipId && snapGuideTime !== null ? (
           <div
-            key={clip.id}
-            onPointerDown={(event) => {
-              if (!interactiveClips) {
-                return
-              }
-              event.stopPropagation()
-            }}
-            onClick={() => {
-              if (!interactiveClips) {
-                return
-              }
-              onClipSelect?.(clip.id)
-            }}
-            className={[
-              "absolute top-1 bottom-1 transform-gpu rounded-md border transition-colors duration-150",
-              activeClipId === clip.id
-                ? "border-zinc-100/70 bg-zinc-200/35"
-                : "border-zinc-100/45 bg-zinc-200/22 hover:border-zinc-100/70 hover:bg-zinc-200/30",
-              interactiveClips ? "cursor-pointer" : "pointer-events-none",
-            ].join(" ")}
-            style={{
-              left: `${start}%`,
-              width: `${width}%`,
-              boxShadow:
-                activeClipId === clip.id
-                  ? "0 0 14px -7px rgba(219,227,240,0.9)"
-                  : "0 0 8px -8px rgba(219,227,240,0.55)",
-            }}
-            title={`${clip.title}: ${formatSeconds(clip.start)} - ${formatSeconds(clip.end)}`}
+            className="pointer-events-none absolute top-0 bottom-0 z-[5] w-[2px] bg-amber-200/90 shadow-[0_0_10px_rgba(252,211,77,0.75)]"
+            style={{ left: `${toPercent(snapGuideTime, duration)}%` }}
           />
-        ))}
+        ) : null}
 
         <div
           className="absolute top-0 bottom-0 w-[2px] bg-zinc-100"
@@ -421,7 +747,7 @@ export function SmartTimeline({
               className="pointer-events-none absolute top-1 z-10 rounded-md border border-white/14 bg-black/70 px-2 py-1 text-[11px] text-zinc-200 backdrop-blur-md"
               style={{ left: `${hover.x}px`, transform: "translateX(-50%)" }}
             >
-              {hover.block.label} · {hover.block.confidence}% точность
+              {hover.block.label} · {hover.block.confidence}% confidence
             </motion.div>
           ) : null}
         </AnimatePresence>
@@ -433,8 +759,10 @@ export function SmartTimeline({
           {activeSelection
             ? `${formatSeconds(activeSelection.start)} - ${formatSeconds(activeSelection.end)}`
             : allowRangeSelection
-              ? "Потяните по таймлайну для выделения диапазона"
-              : "Выберите клип на шкале или в списке"}
+              ? "Drag on timeline to select a range"
+              : onClipTimingChange && interactiveClips
+                ? "Clip drag: free move, edges: trim, snap guides"
+                : "Select a clip on timeline or in the list"}
         </span>
         <span>{formatSeconds(duration)}</span>
       </div>

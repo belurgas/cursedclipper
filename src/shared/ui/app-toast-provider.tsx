@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react"
 import { AnimatePresence, motion } from "framer-motion"
+import { useTranslation } from "react-i18next"
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
@@ -86,6 +87,7 @@ function toneStyles(tone: ToastTone) {
 }
 
 export function AppToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation()
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const timersRef = useRef<Map<string, number>>(new Map())
 
@@ -209,7 +211,7 @@ export function AppToastProvider({ children }: { children: ReactNode }) {
                     ) : null}
                     {toast.collapsed && typeof boundedProgress === "number" ? (
                       <p className={cn("mt-0.5 text-[11px]", styles.muted)}>
-                        Прогресс: {boundedProgress}%
+                        {t("toast.progress", { progress: boundedProgress })}
                       </p>
                     ) : null}
                   </div>

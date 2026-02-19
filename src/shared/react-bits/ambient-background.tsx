@@ -6,13 +6,16 @@ type AmbientBackgroundProps = {
 
 export function AmbientBackground({ variant }: AmbientBackgroundProps) {
   const isWorkspace = variant === "workspace"
+  const ditherClassName = isWorkspace
+    ? "absolute inset-0 opacity-[0.04] mix-blend-soft-light"
+    : "absolute inset-0 opacity-[0.035] mix-blend-normal"
 
   return (
     <div className="pointer-events-none absolute inset-0 -z-0 overflow-hidden">
       <Dither
         colorNum={29}
         waveColor={[0.5, 0.5, 0.5]}
-        className="absolute inset-0 opacity-[0.04] mix-blend-soft-light"
+        className={ditherClassName}
       />
       <div
         className={

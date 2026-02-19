@@ -1,5 +1,6 @@
 import { motion } from "framer-motion"
 import { WandSparklesIcon } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { formatSeconds } from "@/app/mock-data"
 import type { ThumbnailTemplate } from "@/app/types"
@@ -35,9 +36,38 @@ export function ThumbnailGeneratorPanel({
   onSelectTemplate,
   onUpdateTemplate,
 }: ThumbnailGeneratorPanelProps) {
+  const { t } = useTranslation()
   const activeTemplate = templates.find((template) => template.id === activeTemplateId) ?? templates[0]
+  const canGenerate = duration > 0 && !processing
+
   if (!activeTemplate) {
-    return null
+    return (
+      <SpotlightCard className="min-w-0 rounded-xl border border-white/12 bg-black/28 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">{t("thumbnailGeneratorPanel.autoCover")}</p>
+            <p className="mt-1 text-xs text-zinc-400">
+              {t("thumbnailGeneratorPanel.emptyDescription")}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onGenerate}
+            disabled={!canGenerate}
+            className="border-white/15 bg-transparent text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+          >
+            <WandSparklesIcon className="size-3.5" />
+            {t("thumbnailGeneratorPanel.generate")}
+          </Button>
+        </div>
+        <div className="mt-3 rounded-lg border border-white/10 bg-black/30 px-3 py-3 text-xs text-zinc-400">
+          {duration > 0
+            ? t("thumbnailGeneratorPanel.noTemplatesYet")
+            : t("thumbnailGeneratorPanel.loadMetadataFirst")}
+        </div>
+      </SpotlightCard>
+    )
   }
 
   const focusProgress = duration > 0 ? (activeTemplate.focusTime / duration) * 100 : 0
@@ -47,25 +77,26 @@ export function ThumbnailGeneratorPanel({
     <SpotlightCard className="min-w-0 rounded-xl border border-white/12 bg-black/28 p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Автообложка</p>
+          <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">{t("thumbnailGeneratorPanel.autoCover")}</p>
           <p className="mt-1 text-xs text-zinc-400">
-            ИИ выбирает кадр, а вы редактируете заголовок и переключаете шаблон.
+            {t("thumbnailGeneratorPanel.description")}
           </p>
         </div>
         <Button
           size="sm"
           variant="outline"
           onClick={onGenerate}
+          disabled={!canGenerate}
           className="border-white/15 bg-transparent text-zinc-200 hover:bg-white/10"
         >
           <WandSparklesIcon className="size-3.5" />
-          Сгенерировать
+          {t("thumbnailGeneratorPanel.generate")}
         </Button>
       </div>
 
       {processing ? (
         <div className="mt-3 rounded-lg border border-white/10 bg-white/4 px-3 py-2">
-          <ShinyText text="Собираем варианты обложек..." speed={2.2} className="text-xs" />
+          <ShinyText text={t("thumbnailGeneratorPanel.buildingVariants")} speed={2.2} className="text-xs" />
         </div>
       ) : null}
 
@@ -95,7 +126,7 @@ export function ThumbnailGeneratorPanel({
             transition={{ duration: 0.15, ease: "linear" }}
           />
           <div className="absolute top-2 right-2 rounded-md border border-white/12 bg-black/55 px-2 py-1 text-[11px] text-zinc-300">
-            Фокус {formatSeconds(activeTemplate.focusTime)}
+            {t("thumbnailGeneratorPanel.focusAt", { time: formatSeconds(activeTemplate.focusTime) })}
           </div>
         </div>
 
@@ -106,7 +137,7 @@ export function ThumbnailGeneratorPanel({
               onUpdateTemplate(activeTemplate.id, { overlayTitle: event.target.value })
             }
             className="border-white/12 bg-black/20 text-sm"
-            placeholder="Заголовок обложки"
+            placeholder={t("thumbnailGeneratorPanel.titlePlaceholder")}
           />
           <Input
             value={activeTemplate.overlaySubtitle}
@@ -114,13 +145,16 @@ export function ThumbnailGeneratorPanel({
               onUpdateTemplate(activeTemplate.id, { overlaySubtitle: event.target.value })
             }
             className="border-white/12 bg-black/20 text-sm"
-            placeholder="Подзаголовок / тег"
+            placeholder={t("thumbnailGeneratorPanel.subtitlePlaceholder")}
           />
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
           {templates.map((template) => {
             const selected = template.id === activeTemplateId
+            const templateName = t(`thumbnailTemplateCatalog.${template.id}.name`, {
+              defaultValue: template.name,
+            })
             return (
               <button
                 key={template.id}
@@ -131,9 +165,9 @@ export function ThumbnailGeneratorPanel({
                     ? "border-zinc-200/45 bg-zinc-100/12 text-zinc-100"
                     : "border-white/10 bg-white/4 text-zinc-400 hover:border-white/20",
                 ].join(" ")}
-                title={template.name}
+                title={templateName}
               >
-                <span className="block truncate">{template.name}</span>
+                <span className="block truncate">{templateName}</span>
               </button>
             )
           })}

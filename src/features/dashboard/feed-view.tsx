@@ -23,13 +23,37 @@ type FeedViewProps = {
   items: NewsItem[]
 }
 
+const allowedExternalProtocols = new Set(["http:", "https:"])
+
+function sanitizeMarkdownHref(href?: string): string | null {
+  if (typeof href !== "string") {
+    return null
+  }
+  const trimmed = href.trim()
+  if (!trimmed) {
+    return null
+  }
+  if (trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
+    return trimmed
+  }
+  try {
+    const parsed = new URL(trimmed)
+    if (!allowedExternalProtocols.has(parsed.protocol)) {
+      return null
+    }
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
 const feedStyleMap = {
   news: {
     badge: "border-sky-200/30 bg-sky-400/12 text-sky-100",
     rowAccent: "from-sky-300/35 via-emerald-300/18 to-transparent",
     previewFrame: "border-sky-300/18 bg-[radial-gradient(circle_at_90%_10%,rgba(56,189,248,0.18),transparent_48%),rgba(0,0,0,0.24)]",
     defaultEmoji: "📰",
-    defaultAuthor: "Редакция Cursed Clipper",
+    defaultAuthor: "Cursed Clipper Editorial",
   },
   updates: {
     badge: "border-amber-200/30 bg-amber-300/12 text-amber-100",
@@ -42,27 +66,27 @@ const feedStyleMap = {
 
 function buildFallbackArticleMarkdown(item: NewsItem, kind: FeedViewProps["kind"]) {
   const emoji = kind === "news" ? "🧠" : "⚙️"
-  const topic = kind === "news" ? "рынка контента" : "продукта Cursed Clipper"
+  const topic = kind === "news" ? "content market" : "Cursed Clipper product"
   return `
 # ${emoji} ${item.title}
 
-Эта запись получена из ленты **${topic}**.
+This record comes from **${topic}** feed.
 
-## Коротко
+## Summary
 
-- Категория: ${item.label}
-- Время публикации: ${item.timestamp}
-- Контекст: рабочие сценарии монтажа и аналитики
+- Category: ${item.label}
+- Published: ${item.timestamp}
+- Context: editing and analytics workflows
 
-## Почему это важно
+## Why this matters
 
-Материал влияет на решения по структуре клипов, ритму монтажа и приоритетам в публикации.
+This material affects decisions on clip structure, editing rhythm, and publishing priorities.
 
-## Что проверить в проекте
+## What to check in your project
 
-- [ ] Достаточно ли сильный хук в первые секунды
-- [ ] Нет ли лишних фраз без смысловой нагрузки
-- [ ] Соответствует ли длительность целевой платформе
+- [ ] Is the hook strong enough in the first seconds?
+- [ ] Are there redundant phrases with no semantic value?
+- [ ] Does duration fit the target platform?
 `.trim()
 }
 
@@ -175,7 +199,7 @@ export function FeedView({ kind, title, description, items }: FeedViewProps) {
                     }}
                   >
                     <BookOpenTextIcon className="size-3.5" />
-                    Открыть статью
+                    Open article
                   </Button>
                 </div>
               </div>
@@ -185,8 +209,8 @@ export function FeedView({ kind, title, description, items }: FeedViewProps) {
       ) : (
         <div className="rounded-xl border border-white/12 bg-black/22 p-8 text-center">
           <BellIcon className="mx-auto mb-2 size-4 text-zinc-400" />
-          <p className="text-sm text-zinc-300">Пока нет записей.</p>
-          <p className="mt-1 text-xs text-zinc-500">Новые события появятся в этой ленте автоматически.</p>
+          <p className="text-sm text-zinc-300">No entries yet.</p>
+          <p className="mt-1 text-xs text-zinc-500">New events will appear in this feed automatically.</p>
         </div>
       )}
 
@@ -247,7 +271,7 @@ export function FeedView({ kind, title, description, items }: FeedViewProps) {
               <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-4 sm:px-6">
                 <div className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-white/12 bg-white/5 px-2.5 py-1 text-[11px] text-zinc-300">
                   <BookOpenTextIcon className="size-3.5" />
-                  Режим чтения
+                  Reading mode
                 </div>
 
                 <div className="space-y-4 text-sm leading-relaxed text-zinc-200">
@@ -266,11 +290,23 @@ export function FeedView({ kind, title, description, items }: FeedViewProps) {
                           {children}
                         </blockquote>
                       ),
-                      a: ({ href, children }) => (
-                        <a href={href} target="_blank" rel="noreferrer" className="text-sky-300 underline decoration-sky-300/55 underline-offset-2 hover:text-sky-200">
-                          {children}
-                        </a>
-                      ),
+                      a: ({ href, children }) => {
+                        const safeHref = sanitizeMarkdownHref(href)
+                        if (!safeHref) {
+                          return <span className="text-zinc-400">{children}</span>
+                        }
+                        const isExternal = /^https?:\/\//i.test(safeHref)
+                        return (
+                          <a
+                            href={safeHref}
+                            target={isExternal ? "_blank" : undefined}
+                            rel={isExternal ? "noopener noreferrer nofollow" : undefined}
+                            className="text-sky-300 underline decoration-sky-300/55 underline-offset-2 hover:text-sky-200"
+                          >
+                            {children}
+                          </a>
+                        )
+                      },
                       hr: () => <hr className="my-5 border-white/12" />,
                       code: ({ className, children }) => {
                         const text = String(children).replace(/\n$/, "")

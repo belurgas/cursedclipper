@@ -7,6 +7,7 @@ import {
 } from "@/app/mock-data"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import type {
+  ClipAssemblyState,
   ClipSegment,
   ContentPlanIdea,
   ExportClipDraft,
@@ -81,12 +82,17 @@ export type ProjectDraftSourcePayload = {
   sourceDurationSeconds?: number
   sourceThumbnail?: string
   sourceViewCount?: number
+  sourceViewCountPrevious?: number
   sourceLikeCount?: number
+  sourceLikeCountPrevious?: number
   sourceCommentCount?: number
+  sourceCommentCountPrevious?: number
   sourceUploadDate?: string
   sourceChannelId?: string
   sourceChannelUrl?: string
   sourceChannelFollowers?: number
+  sourceChannelFollowersPrevious?: number
+  sourceMetricsUpdatedAt?: string
   importedMediaPath?: string
 }
 
@@ -104,12 +110,17 @@ export type ProjectPatchPayload = {
   sourceDurationSeconds?: number
   sourceThumbnail?: string
   sourceViewCount?: number
+  sourceViewCountPrevious?: number
   sourceLikeCount?: number
+  sourceLikeCountPrevious?: number
   sourceCommentCount?: number
+  sourceCommentCountPrevious?: number
   sourceUploadDate?: string
   sourceChannelId?: string
   sourceChannelUrl?: string
   sourceChannelFollowers?: number
+  sourceChannelFollowersPrevious?: number
+  sourceMetricsUpdatedAt?: string
   importedMediaPath?: string
   updatedAt?: string
 }
@@ -138,6 +149,7 @@ export type RuntimeToolsSettings = {
   projectsRootDir?: string | null
   autoUpdateYtdlp: boolean
   preferBundledFfmpeg: boolean
+  uiLanguage: "en" | "ru"
 }
 
 export type ToolStatus = {
@@ -156,6 +168,27 @@ export type RuntimeToolsStatus = {
   ytdlp: ToolStatus
   ytdlpSystemAvailable: boolean
   projectsDir: string
+}
+
+function normalizeRuntimeToolsSettings(
+  value: Partial<RuntimeToolsSettings> | null | undefined,
+): RuntimeToolsSettings {
+  const mode =
+    value?.ytdlpMode === "custom" || value?.ytdlpMode === "system"
+      ? value.ytdlpMode
+      : "managed"
+  const uiLanguage = value?.uiLanguage === "ru" ? "ru" : "en"
+  return {
+    ytdlpMode: mode,
+    ytdlpCustomPath: value?.ytdlpCustomPath ?? null,
+    ffmpegCustomPath: value?.ffmpegCustomPath ?? null,
+    ffprobeCustomPath: value?.ffprobeCustomPath ?? null,
+    projectsRootDir: value?.projectsRootDir ?? null,
+    autoUpdateYtdlp: typeof value?.autoUpdateYtdlp === "boolean" ? value.autoUpdateYtdlp : false,
+    preferBundledFfmpeg:
+      typeof value?.preferBundledFfmpeg === "boolean" ? value.preferBundledFfmpeg : true,
+    uiLanguage,
+  }
 }
 
 export type RuntimeInstallProgressEvent = {
@@ -218,12 +251,18 @@ export type WorkspacePersistedState = {
     videoName: string
     videoUrl: string
     duration: number
+    videoWidth?: number
+    videoHeight?: number
   }
   transcript: {
     words: TranscriptWord[]
     visibleWordCount: number
     transcriptBlocks: TranscriptSemanticBlock[]
     selection: WordRange | null
+    timeSelection?: {
+      start: number
+      end: number
+    } | null
   }
   clips: ClipSegment[]
   activeClipId: string | null
@@ -240,9 +279,22 @@ export type WorkspacePersistedState = {
     selectedPlatformPresetIds: string[]
     thumbnailTemplates: ThumbnailTemplate[]
     activeThumbnailTemplateId: string
+    videoAnalysis?: {
+      generatedAtUnix: number
+      summary: string
+      highlights: string[]
+      recommendations: string[]
+      metrics: Array<{
+        id: string
+        label: string
+        value: string
+        detail: string
+      }>
+    } | null
   }
   exportState?: {
     clipDrafts: Record<string, ExportClipDraft>
+    assembly?: ClipAssemblyState
   }
 }
 
@@ -250,12 +302,32 @@ export type ClipExportPlatformTask = {
   clipId: string
   platformId: string
   aspect: string
+  subtitlesEnabled?: boolean | null
   start: number
   end: number
+  outputWidth?: number | null
+  outputHeight?: number | null
+  fitMode?: "cover" | "contain" | null
+  renderZoom?: number | null
+  renderOffsetX?: number | null
+  renderOffsetY?: number | null
+  subtitlePositionOverride?: "top" | "center" | "bottom" | null
+  subtitleOffsetX?: number | null
+  subtitleOffsetY?: number | null
+  subtitleBoxWidth?: number | null
+  subtitleBoxHeight?: number | null
   title?: string | null
   description?: string | null
   tags?: string | null
   coverPath?: string | null
+}
+
+export type ClipBatchSubtitlePayload = {
+  enabled: boolean
+  presetId: string
+  presetName?: string | null
+  renderProfile: SubtitlePreset["renderProfile"]
+  words: TranscriptWord[]
 }
 
 export type ClipBatchExportRequest = {
@@ -264,6 +336,7 @@ export type ClipBatchExportRequest = {
   sourcePath: string
   taskId?: string
   tasks: ClipExportPlatformTask[]
+  subtitles?: ClipBatchSubtitlePayload | null
 }
 
 export type ClipExportArtifact = {
@@ -285,6 +358,70 @@ export type ProjectResumeState = {
   currentTime: number
   activeClipId?: string | null
   updatedAtUnix: number
+}
+
+const workspaceModes = new Set<WorkspaceMode>([
+  "video",
+  "clips",
+  "export",
+  "insights",
+  "thumbnails",
+])
+
+function isWorkspaceModeValue(value: unknown): value is WorkspaceMode {
+  return typeof value === "string" && workspaceModes.has(value as WorkspaceMode)
+}
+
+function isWorkspacePersistedState(value: unknown): value is WorkspacePersistedState {
+  if (!value || typeof value !== "object") {
+    return false
+  }
+  const candidate = value as Partial<WorkspacePersistedState>
+  return (
+    candidate.version === 1 &&
+    typeof candidate.media?.videoUrl === "string" &&
+    Array.isArray(candidate.transcript?.words) &&
+    Array.isArray(candidate.semanticBlocks) &&
+    Array.isArray(candidate.clips) &&
+    Boolean(candidate.ai && typeof candidate.ai === "object")
+  )
+}
+
+function isProjectResumeState(value: unknown): value is ProjectResumeState {
+  if (!value || typeof value !== "object") {
+    return false
+  }
+  const candidate = value as Partial<ProjectResumeState>
+  const hasValidActiveClip =
+    candidate.activeClipId === undefined ||
+    candidate.activeClipId === null ||
+    typeof candidate.activeClipId === "string"
+  return (
+    isWorkspaceModeValue(candidate.activeMode) &&
+    typeof candidate.currentTime === "number" &&
+    Number.isFinite(candidate.currentTime) &&
+    typeof candidate.updatedAtUnix === "number" &&
+    Number.isFinite(candidate.updatedAtUnix) &&
+    hasValidActiveClip
+  )
+}
+
+function parseWorkspacePersistedState(raw: string): WorkspacePersistedState | null {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return isWorkspacePersistedState(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function parseProjectResumeState(raw: string): ProjectResumeState | null {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return isProjectResumeState(parsed) ? parsed : null
+  } catch {
+    return null
+  }
 }
 
 const workspaceStateStorageKey = (projectId: string) =>
@@ -325,11 +462,17 @@ const readLocalWorkspaceState = (projectId: string): WorkspacePersistedState | n
     if (!raw) {
       return null
     }
+    const parsed = parseWorkspacePersistedState(raw)
+    if (!parsed) {
+      window.localStorage.removeItem(nextKey)
+      window.localStorage.removeItem(legacyKey)
+      return null
+    }
     if (!window.localStorage.getItem(nextKey)) {
       window.localStorage.setItem(nextKey, raw)
       window.localStorage.removeItem(legacyKey)
     }
-    return JSON.parse(raw) as WorkspacePersistedState
+    return parsed
   } catch {
     return null
   }
@@ -366,11 +509,17 @@ const readLocalResumeState = (projectId: string): ProjectResumeState | null => {
     if (!raw) {
       return null
     }
+    const parsed = parseProjectResumeState(raw)
+    if (!parsed) {
+      window.localStorage.removeItem(nextKey)
+      window.localStorage.removeItem(legacyKey)
+      return null
+    }
     if (!window.localStorage.getItem(nextKey)) {
       window.localStorage.setItem(nextKey, raw)
       window.localStorage.removeItem(legacyKey)
     }
-    return JSON.parse(raw) as ProjectResumeState
+    return parsed
   } catch {
     return null
   }
@@ -459,21 +608,27 @@ export async function createProjectDraftViaBackend(
       sourceDurationSeconds: source?.sourceDurationSeconds,
       sourceThumbnail: source?.sourceThumbnail,
       sourceViewCount: source?.sourceViewCount,
+      sourceViewCountPrevious: source?.sourceViewCountPrevious,
       sourceLikeCount: source?.sourceLikeCount,
+      sourceLikeCountPrevious: source?.sourceLikeCountPrevious,
       sourceCommentCount: source?.sourceCommentCount,
+      sourceCommentCountPrevious: source?.sourceCommentCountPrevious,
       sourceUploadDate: source?.sourceUploadDate,
       sourceChannelId: source?.sourceChannelId,
       sourceChannelUrl: source?.sourceChannelUrl,
       sourceChannelFollowers: source?.sourceChannelFollowers,
+      sourceChannelFollowersPrevious: source?.sourceChannelFollowersPrevious,
+      sourceMetricsUpdatedAt: source?.sourceMetricsUpdatedAt,
       importedMediaPath: normalizeWindowsExtendedPath(source?.importedMediaPath),
     })
     return normalizeProjectPathFields(project)
   } catch (error) {
     console.error("Failed to create project via Rust backend:", error)
-    return {
-      ...createProjectDraft(name, description),
-      ...source,
-    }
+    const message =
+      error instanceof Error && error.message.trim()
+        ? error.message
+        : "Failed to create project in database."
+    throw new Error(message)
   }
 }
 
@@ -482,7 +637,7 @@ export async function updateProjectViaBackend(
   patch: ProjectPatchPayload,
 ): Promise<Project> {
   if (!isTauriRuntime()) {
-    throw new Error("Обновление проекта доступно только в desktop runtime.")
+    throw new Error("Project update is available only in desktop runtime.")
   }
   const payload = {
     ...patch,
@@ -566,24 +721,25 @@ export async function getRuntimeToolsStatus(): Promise<RuntimeToolsStatus> {
       projectsRootDir: null,
       autoUpdateYtdlp: false,
       preferBundledFfmpeg: true,
+      uiLanguage: "en",
     },
     ffmpeg: {
       name: "ffmpeg",
       available: false,
       source: "missing",
-      message: "Проверка доступна в Tauri runtime.",
+      message: "Check is available in Tauri runtime.",
     },
     ffprobe: {
       name: "ffprobe",
       available: false,
       source: "missing",
-      message: "Проверка доступна в Tauri runtime.",
+      message: "Check is available in Tauri runtime.",
     },
     ytdlp: {
       name: "yt-dlp",
       available: false,
       source: "missing",
-      message: "Проверка доступна в Tauri runtime.",
+      message: "Check is available in Tauri runtime.",
     },
     ytdlpSystemAvailable: false,
     projectsDir: "imports",
@@ -593,7 +749,11 @@ export async function getRuntimeToolsStatus(): Promise<RuntimeToolsStatus> {
     return fallback
   }
   try {
-    return await invokeTauri<RuntimeToolsStatus>("get_runtime_tools_status")
+    const payload = await invokeTauri<RuntimeToolsStatus>("get_runtime_tools_status")
+    return {
+      ...payload,
+      settings: normalizeRuntimeToolsSettings(payload.settings),
+    }
   } catch (error) {
     console.error("Failed to fetch tools status:", error)
     return fallback
@@ -602,7 +762,7 @@ export async function getRuntimeToolsStatus(): Promise<RuntimeToolsStatus> {
 
 export async function getRuntimeToolsSettings(): Promise<RuntimeToolsSettings> {
   if (!isTauriRuntime()) {
-    return {
+    return normalizeRuntimeToolsSettings({
       ytdlpMode: "managed",
       ytdlpCustomPath: null,
       ffmpegCustomPath: null,
@@ -610,32 +770,36 @@ export async function getRuntimeToolsSettings(): Promise<RuntimeToolsSettings> {
       projectsRootDir: null,
       autoUpdateYtdlp: false,
       preferBundledFfmpeg: true,
-    }
+      uiLanguage: "en",
+    })
   }
-  return invokeTauri<RuntimeToolsSettings>("get_runtime_tools_settings")
+  const payload = await invokeTauri<RuntimeToolsSettings>("get_runtime_tools_settings")
+  return normalizeRuntimeToolsSettings(payload)
 }
 
 export async function saveRuntimeToolsSettings(
   settings: RuntimeToolsSettings,
 ): Promise<RuntimeToolsSettings> {
+  const normalized = normalizeRuntimeToolsSettings(settings)
   if (!isTauriRuntime()) {
-    return settings
+    return normalized
   }
-  return invokeTauri<RuntimeToolsSettings>("save_runtime_tools_settings", {
-    settings,
+  const payload = await invokeTauri<RuntimeToolsSettings>("save_runtime_tools_settings", {
+    settings: normalized,
   })
+  return normalizeRuntimeToolsSettings(payload)
 }
 
 export async function installOrUpdateManagedYtdlp(): Promise<ToolStatus> {
   if (!isTauriRuntime()) {
-    throw new Error("Установка доступна только в desktop runtime.")
+    throw new Error("Installation is available only in desktop runtime.")
   }
   return invokeTauri<ToolStatus>("install_or_update_managed_ytdlp")
 }
 
 export async function installOrUpdateManagedFfmpeg(): Promise<RuntimeToolsStatus> {
   if (!isTauriRuntime()) {
-    throw new Error("Установка доступна только в desktop runtime.")
+    throw new Error("Installation is available only in desktop runtime.")
   }
   return invokeTauri<RuntimeToolsStatus>("install_or_update_managed_ffmpeg")
 }
@@ -676,14 +840,14 @@ export async function stageLocalVideoFile(
 
 export async function openProjectsRootDir(): Promise<string> {
   if (!isTauriRuntime()) {
-    throw new Error("Открытие папки доступно только в desktop runtime.")
+    throw new Error("Open folder is available only in desktop runtime.")
   }
   return invokeTauri<string>("open_projects_root_dir")
 }
 
 export async function openPathInFileManager(path: string): Promise<string> {
   if (!isTauriRuntime()) {
-    throw new Error("Открытие пути доступно только в desktop runtime.")
+    throw new Error("Open path is available only in desktop runtime.")
   }
   return invokeTauri<string>("open_path_in_file_manager", { path })
 }
@@ -727,11 +891,7 @@ export async function loadProjectWorkspaceState(
     if (!raw) {
       return readLocalWorkspaceState(projectId)
     }
-    try {
-      return JSON.parse(raw) as WorkspacePersistedState
-    } catch {
-      return readLocalWorkspaceState(projectId)
-    }
+    return parseWorkspacePersistedState(raw) ?? readLocalWorkspaceState(projectId)
   } catch {
     return readLocalWorkspaceState(projectId)
   }
@@ -777,7 +937,10 @@ export async function loadProjectResumeState(
     const fromBackend = await invokeTauri<ProjectResumeState | null>("load_project_resume_state", {
       projectId,
     })
-    return fromBackend ?? readLocalResumeState(projectId)
+    if (!fromBackend) {
+      return readLocalResumeState(projectId)
+    }
+    return isProjectResumeState(fromBackend) ? fromBackend : readLocalResumeState(projectId)
   } catch {
     return readLocalResumeState(projectId)
   }
@@ -788,7 +951,7 @@ export async function probeYoutubeFormats(
 ): Promise<YoutubeProbeResult> {
   if (!isTauriRuntime()) {
     return {
-      title: "Демо видео YouTube",
+      title: "YouTube demo video",
       uploader: "Cursed Clipper Demo",
       duration: 192,
       thumbnail: null,

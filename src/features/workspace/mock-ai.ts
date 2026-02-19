@@ -6,6 +6,7 @@ import type {
   SemanticBlockType,
   SeriesSegment,
   SubtitlePreset,
+  SubtitleRenderProfile,
   ThumbnailTemplate,
   TranscriptSemanticBlock,
   TranscriptWord,
@@ -25,24 +26,24 @@ const semanticPalette: Record<
 const semanticMeta: Record<SemanticBlockType, { label: string; summary: string; theme: string }> =
   {
     hook: {
-      label: "Хук",
-      summary: "Сильный вход с обещанием результата и триггером внимания.",
-      theme: "Запуск внимания",
+      label: "Hook",
+      summary: "Strong opening with a clear outcome promise and attention trigger.",
+      theme: "Attention ignition",
     },
     story: {
-      label: "Контекст",
-      summary: "Смысловой слой, который удерживает и объясняет причину.",
-      theme: "Нарратив и контекст",
+      label: "Context",
+      summary: "Narrative layer that holds attention and explains the reason.",
+      theme: "Narrative and context",
     },
     proof: {
-      label: "Доказательство",
-      summary: "Факт, пример или метрика, укрепляющие доверие.",
-      theme: "Подтверждение ценности",
+      label: "Proof",
+      summary: "Fact, example, or metric that reinforces trust.",
+      theme: "Value validation",
     },
     cta: {
-      label: "Действие",
-      summary: "Ясный призыв и следующий шаг для зрителя.",
-      theme: "Призыв к действию",
+      label: "Action",
+      summary: "Clear call to action and next step for the viewer.",
+      theme: "Call to action",
     },
   }
 
@@ -53,30 +54,123 @@ const clamp = (value: number, min: number, max: number) =>
 
 const isSentenceBoundary = (value: string) => /[.!?]$/.test(value)
 
+const defaultSubtitleRenderProfile: SubtitleRenderProfile = {
+  animation: "line",
+  position: "bottom",
+  fontFamily: "Montserrat",
+  fontSize: 58,
+  lineHeight: 1.12,
+  maxWordsPerLine: 5,
+  maxCharsPerLine: 28,
+  maxLines: 2,
+  safeMarginX: 86,
+  safeMarginY: 124,
+  primaryColor: "#FFFFFF",
+  secondaryColor: "#7EA6FF",
+  outlineColor: "#0A0D16",
+  shadowColor: "#000000",
+  outlineWidth: 2.8,
+  shadowDepth: 1.8,
+  bold: true,
+  italic: false,
+  allCaps: false,
+  letterSpacing: 0.2,
+  fadeInMs: 110,
+  fadeOutMs: 150,
+  highlightImportantWords: true,
+}
+
+const makeRenderProfile = (
+  overrides: Partial<SubtitleRenderProfile>,
+): SubtitleRenderProfile => ({
+  ...defaultSubtitleRenderProfile,
+  ...overrides,
+})
+
 export const subtitlePresets: SubtitlePreset[] = [
   {
     id: "sub_cinematic",
-    name: "Кинематографичный минимал",
-    description: "Мягкая тень, высокий контраст, плавная подача фраз.",
-    styleSample: "Именно здесь идея становится понятной.",
+    name: "Cinematic minimal",
+    description: "Soft shadow, high contrast, smooth phrase flow.",
+    styleSample: "This is where the idea becomes clear.",
+    renderProfile: makeRenderProfile({
+      animation: "line",
+      fontFamily: "Cormorant Garamond",
+      fontSize: 60,
+      maxWordsPerLine: 6,
+      maxCharsPerLine: 34,
+      outlineWidth: 2.3,
+      shadowDepth: 2.4,
+      letterSpacing: 0.28,
+      fadeInMs: 170,
+      fadeOutMs: 200,
+      secondaryColor: "#D6E2FF",
+      safeMarginY: 142,
+    }),
   },
   {
     id: "sub_punch",
-    name: "Акцентные слова",
-    description: "Ключевые слова деликатно усиливаются в ритме речи.",
-    styleSample: "Достаточно одного сильного хука.",
+    name: "Accent words",
+    description: "Key words are subtly enhanced in speech rhythm.",
+    styleSample: "One strong hook is enough.",
+    renderProfile: makeRenderProfile({
+      animation: "karaoke",
+      fontFamily: "Manrope",
+      fontSize: 62,
+      maxWordsPerLine: 4,
+      maxCharsPerLine: 26,
+      secondaryColor: "#FFC74A",
+      outlineWidth: 3.2,
+      shadowDepth: 1.6,
+      letterSpacing: 0.12,
+      fadeInMs: 90,
+      fadeOutMs: 120,
+      bold: true,
+      safeMarginY: 112,
+    }),
   },
   {
     id: "sub_editorial",
-    name: "Редакционный стиль",
-    description: "Премиальная типографика для экспертного повествования.",
-    styleSample: "Аудитория запоминает эмоциональную ясность.",
+    name: "Editorial style",
+    description: "Premium typography for expert storytelling.",
+    styleSample: "Audience remembers emotional clarity.",
+    renderProfile: makeRenderProfile({
+      animation: "word-pop",
+      position: "center",
+      fontFamily: "Playfair Display",
+      fontSize: 56,
+      maxWordsPerLine: 6,
+      maxCharsPerLine: 36,
+      maxLines: 3,
+      outlineWidth: 1.8,
+      shadowDepth: 1.4,
+      bold: false,
+      italic: false,
+      allCaps: false,
+      letterSpacing: 0.38,
+      secondaryColor: "#9ED0FF",
+      safeMarginY: 96,
+    }),
   },
   {
     id: "sub_clean",
-    name: "Чистый универсальный",
-    description: "Компактная подача для плотного информационного контента.",
-    styleSample: "Преобразуйте инсайт в конкретное действие.",
+    name: "Clean universal",
+    description: "Compact style for dense informational content.",
+    styleSample: "Turn insight into concrete action.",
+    renderProfile: makeRenderProfile({
+      animation: "karaoke",
+      fontFamily: "Inter",
+      fontSize: 52,
+      maxWordsPerLine: 6,
+      maxCharsPerLine: 30,
+      maxLines: 2,
+      outlineWidth: 2.4,
+      shadowDepth: 1.2,
+      bold: true,
+      letterSpacing: 0.06,
+      safeMarginY: 118,
+      secondaryColor: "#77EEB5",
+    }),
   },
 ]
 
@@ -85,29 +179,29 @@ export const platformPresets: PlatformPreset[] = [
     id: "pf_tiktok",
     name: "TikTok",
     aspect: "9:16",
-    maxDuration: "60 с",
-    description: "Быстрый хук, безопасные поля под субтитры, динамичный темп.",
+    maxDuration: "60s",
+    description: "Fast hook, subtitle-safe zones, dynamic pacing.",
   },
   {
     id: "pf_shorts",
     name: "Shorts",
     aspect: "9:16",
-    maxDuration: "60 с",
-    description: "Ритм под удержание и прямой CTA в финале.",
+    maxDuration: "60s",
+    description: "Retention-focused pacing with direct CTA at the end.",
   },
   {
     id: "pf_reels",
     name: "Reels",
     aspect: "9:16",
-    maxDuration: "90 с",
-    description: "Историйная подача и чистые нижние подписи.",
+    maxDuration: "90s",
+    description: "Story-driven delivery with clean lower subtitles.",
   },
   {
     id: "pf_telegram",
     name: "Telegram",
     aspect: "16:9",
-    maxDuration: "120 с",
-    description: "Более контекстный формат для канала и объясняющих нарезок.",
+    maxDuration: "120s",
+    description: "Context-rich format for channel posts and explainers.",
   },
 ]
 
@@ -207,7 +301,7 @@ export const computeViralScore = (words: TranscriptWord[]): number => {
   const density = Math.min(1, words.length / 120)
   const punctuationBoost = words.filter((word) => /[.!?]$/.test(word.text)).length / words.length
   const energeticWords = words.filter((word) =>
-    /(сильн|один|ясн|пик|луч|быстр|хук|результат|вниман|удерж)/i.test(word.text),
+    /(strong|clear|peak|better|fast|hook|result|focus|retain|watch)/i.test(word.text),
   ).length
   const energeticBoost = Math.min(1, energeticWords / 22)
 
@@ -217,24 +311,24 @@ export const computeViralScore = (words: TranscriptWord[]): number => {
 export const buildViralInsights = (score: number): ViralInsight[] => [
   {
     id: "vi_hook_density",
-    title: "Плотность хуков выше медианы ниши",
+    title: "Hook density above niche median",
     impact: "High",
-    detail: `Профиль первых секунд попадает в верхние ${Math.max(
+    detail: `First-seconds profile falls into top ${Math.max(
       8,
       100 - score,
-    )}% по вероятности удержания.`,
+    )}% for retention probability.`,
   },
   {
     id: "vi_pacing",
-    title: "Ритм фраз поддерживает повторные просмотры",
+    title: "Phrase pacing supports rewatches",
     impact: "Medium",
-    detail: "Переходы между предложениями компактные, риск потери внимания после 7-й секунды низкий.",
+    detail: "Sentence transitions are compact; attention-drop risk after second 7 is low.",
   },
   {
     id: "vi_clarity",
-    title: "Формулировку выгоды стоит усилить в финале",
+    title: "Value statement should be stronger in the ending",
     impact: "Medium",
-    detail: "Добавьте явный результат в последние 20% клипа для роста намерения досмотреть до конца.",
+    detail: "Add an explicit outcome in the final 20% of the clip to increase completion intent.",
   },
 ]
 
@@ -248,30 +342,30 @@ export const buildHookCandidates = (
   return [
     {
       id: "hk_1",
-      headline: "Одна правка изменила то, как досматривают это видео",
-      reasoning: "Формулировка трансформации усиливает удержание в первые 3 секунды.",
-      predictedLift: "+18% удержание",
+      headline: "One edit changed how people complete this video",
+      reasoning: "Transformation framing increases retention in the first 3 seconds.",
+      predictedLift: "+18% retention",
       tone: "Bold",
     },
     {
       id: "hk_2",
-      headline: "Прежде чем публиковать клип, проверьте эту ошибку тайминга",
-      reasoning: "Рамка риска + прикладная польза повышают вероятность открытия.",
-      predictedLift: "+12% открытие",
+      headline: "Before publishing a clip, check this timing mistake",
+      reasoning: "Risk framing plus practical benefit increases open probability.",
+      predictedLift: "+12% opens",
       tone: "Direct",
     },
     {
       id: "hk_3",
-      headline: `Из "${projectName}" в 30-секундную историю с высокой конверсией`,
-      reasoning: "Упоминание источника повышает релевантность и доверие.",
-      predictedLift: "+16% досмотр",
+      headline: `From "${projectName}" to a 30-second high-conversion story`,
+      reasoning: "Mentioning source increases relevance and trust.",
+      predictedLift: "+16% completion",
       tone: "Data-led",
     },
     {
       id: "hk_4",
-      headline: `Самый пересматриваемый момент начинается здесь: ${compactSeed}...`,
-      reasoning: "Незавершенный контекст создает эффект ожидания и усиливает интерес.",
-      predictedLift: "+14% повтор",
+      headline: `The most rewatched moment starts here: ${compactSeed}...`,
+      reasoning: "Unfinished context creates anticipation and boosts interest.",
+      predictedLift: "+14% rewatches",
       tone: "Reflective",
     },
   ]
@@ -283,27 +377,27 @@ export const buildContentPlanIdeas = (
 ): ContentPlanIdea[] => [
   {
     id: "cp_1",
-    title: "Мини-серия «Миф / Реальность»",
-    angle: "Каждый эпизод закрывает одно возражение аудитории через доказательство.",
+    title: "Mini-series: Myth / Reality",
+    angle: "Each episode closes one audience objection with proof.",
     channels: ["Reels", "Shorts", "TikTok"],
     scriptOutline:
-      "Миф -> 2 секунды опровержения -> фрагмент доказательства -> один практический вывод.",
+      "Myth -> 2-second rebuttal -> proof fragment -> one practical conclusion.",
   },
   {
     id: "cp_2",
-    title: "Микро-уроки основателя",
-    angle: `Преобразовать "${projectName}" в пять стратегических микро-историй.`,
+    title: "Founder micro-lessons",
+    angle: `Turn "${projectName}" into five strategic micro-stories.`,
     channels: ["Shorts", "Telegram"],
     scriptOutline:
-      "Ситуация -> решение -> результат -> короткая рефлексия, усиливающая экспертность.",
+      "Situation -> solution -> result -> short reflection reinforcing authority.",
   },
   {
     id: "cp_3",
-    title: `Лестница хуков от "${hooks[0]?.headline ?? "основной идеи"}"`,
-    angle: "Публикация трех версий одного смыслового блока с разным входом.",
+    title: `Hook ladder from "${hooks[0]?.headline ?? "core idea"}"`,
+    angle: "Publish three versions of one semantic block with different openings.",
     channels: ["TikTok", "Reels"],
     scriptOutline:
-      "Версия A (любопытство) -> Версия B (проблема) -> Версия C (доказательство в начале).",
+      "Version A (curiosity) -> Version B (problem) -> Version C (proof first).",
   },
 ]
 
@@ -322,7 +416,7 @@ export const buildSeriesSegments = (
     const paddedEnd = Math.min(safeDuration, block.end + 0.8)
     return {
       id: `seg_${index}`,
-      title: `Эпизод ${index + 1}`,
+      title: `Episode ${index + 1}`,
       start: paddedStart,
       end: paddedEnd,
       theme: semanticMeta[block.type].theme,
@@ -337,25 +431,25 @@ export const buildThumbnailTemplates = (
 ): ThumbnailTemplate[] => [
   {
     id: "th_1",
-    name: "Серебряный фокус",
-    overlayTitle: "Этот момент меняет все",
+    name: "Silver focus",
+    overlayTitle: "This moment changes everything",
     overlaySubtitle: projectName,
     focusTime: Math.max(2, duration * 0.16),
     palette: ["#dfe6f3", "#78839a"],
   },
   {
     id: "th_2",
-    name: "Редакционный контраст",
-    overlayTitle: "Инсайт за 10 секунд",
-    overlaySubtitle: "Стратегия удержания",
+    name: "Editorial contrast",
+    overlayTitle: "Insight in 10 seconds",
+    overlaySubtitle: "Retention strategy",
     focusTime: Math.max(4, duration * 0.3),
     palette: ["#edf2fb", "#5f6c86"],
   },
   {
     id: "th_3",
-    name: "Уверенный кадр",
-    overlayTitle: "Сделайте это до публикации",
-    overlaySubtitle: "Интеллект Cursed Clipper",
+    name: "Confident frame",
+    overlayTitle: "Do this before publishing",
+    overlaySubtitle: "Cursed Clipper intelligence",
     focusTime: Math.max(5, duration * 0.45),
     palette: ["#f4f7ff", "#6f7d96"],
   },

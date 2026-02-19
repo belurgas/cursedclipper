@@ -11,10 +11,19 @@ import {
   ShieldCheckIcon,
   WrenchIcon,
 } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import i18n from "@/shared/i18n/i18n"
+import {
+  getStoredUiLanguage,
+  hasStoredUiLanguage,
+  normalizeUiLanguage,
+  setStoredUiLanguage,
+  type UiLanguage,
+} from "@/shared/i18n/language"
 import {
   getRuntimeToolsStatus,
   installOrUpdateManagedFfmpeg,
@@ -28,25 +37,7 @@ import {
 
 const modeOptions: Array<{
   id: RuntimeToolsSettings["ytdlpMode"]
-  label: string
-  hint: string
-}> = [
-  {
-    id: "managed",
-    label: "Managed (рекомендуется)",
-    hint: "Приложение само устанавливает и обновляет yt-dlp без конфликтов.",
-  },
-  {
-    id: "custom",
-    label: "Custom path",
-    hint: "Использовать ваш путь к бинарнику yt-dlp.",
-  },
-  {
-    id: "system",
-    label: "System",
-    hint: "Использовать yt-dlp из PATH операционной системы.",
-  },
-]
+}> = [{ id: "managed" }, { id: "custom" }, { id: "system" }]
 
 function statusTone(available: boolean) {
   return available
@@ -60,13 +51,25 @@ type SettingsViewProps = {
   onStatusChange?: (status: RuntimeToolsStatus) => void
 }
 
+const isMacLikePlatform =
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent)
+
+const normalizeSettings = (settings: RuntimeToolsSettings): RuntimeToolsSettings => ({
+  ...settings,
+  uiLanguage: normalizeUiLanguage(settings.uiLanguage),
+})
+
 export function SettingsView({
   onRuntimeMessage,
   initialStatus = null,
   onStatusChange,
 }: SettingsViewProps) {
+  const { t } = useTranslation()
   const [status, setStatus] = useState<RuntimeToolsStatus | null>(initialStatus)
-  const [form, setForm] = useState<RuntimeToolsSettings | null>(initialStatus?.settings ?? null)
+  const [form, setForm] = useState<RuntimeToolsSettings | null>(
+    initialStatus?.settings ? normalizeSettings(initialStatus.settings) : null,
+  )
   const [loading, setLoading] = useState(!initialStatus)
   const [saving, setSaving] = useState(false)
   const [installing, setInstalling] = useState(false)
@@ -75,11 +78,31 @@ export function SettingsView({
   const [openingDir, setOpeningDir] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [errorText, setErrorText] = useState<string | null>(null)
+  const [isLanguageSwitching, setIsLanguageSwitching] = useState(false)
 
   const applyStatus = (payload: RuntimeToolsStatus) => {
-    setStatus(payload)
-    setForm(payload.settings)
-    onStatusChange?.(payload)
+    const normalizedSettings = normalizeSettings(payload.settings)
+    const hasStoredLanguage = hasStoredUiLanguage()
+    const effectiveLanguage = hasStoredLanguage
+      ? getStoredUiLanguage()
+      : normalizedSettings.uiLanguage
+    const settingsWithEffectiveLanguage: RuntimeToolsSettings = {
+      ...normalizedSettings,
+      uiLanguage: effectiveLanguage,
+    }
+    const normalizedPayload: RuntimeToolsStatus = {
+      ...payload,
+      settings: settingsWithEffectiveLanguage,
+    }
+    setStatus(normalizedPayload)
+    setForm(settingsWithEffectiveLanguage)
+    if (!hasStoredLanguage) {
+      setStoredUiLanguage(effectiveLanguage)
+      if (normalizeUiLanguage(i18n.language) !== effectiveLanguage) {
+        void i18n.changeLanguage(effectiveLanguage)
+      }
+    }
+    onStatusChange?.(normalizedPayload)
   }
 
   const loadStatus = async (silent = false) => {
@@ -91,7 +114,7 @@ export function SettingsView({
       const payload = await getRuntimeToolsStatus()
       applyStatus(payload)
     } catch (error) {
-      setErrorText(error instanceof Error ? error.message : "Не удалось загрузить настройки.")
+      setErrorText(error instanceof Error ? error.message : t("settings.messages.loadFailed"))
     } finally {
       if (!silent) {
         setLoading(false)
@@ -140,11 +163,9 @@ export function SettingsView({
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base text-zinc-100">
             <Settings2Icon className="size-4 text-zinc-300" />
-            Runtime и инструменты
+            {t("settings.runtimeTitle")}
           </CardTitle>
-          <p className="text-sm text-zinc-400">
-            Статус FFmpeg, FFprobe и yt-dlp для импорта и обработки видео.
-          </p>
+          <p className="text-sm text-zinc-400">{t("settings.runtimeDescription")}</p>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-2 md:grid-cols-3">
@@ -155,9 +176,9 @@ export function SettingsView({
               >
                 <p className="text-sm font-medium">{tool?.name}</p>
                 <p className="mt-1 text-xs opacity-80">
-                  {tool?.available ? tool?.version ?? "Готово" : tool?.message ?? "Не найден"}
+                  {tool?.available ? tool?.version ?? "OK" : tool?.message ?? "Missing"}
                 </p>
-                <p className="mt-1 text-[11px] opacity-70">Источник: {tool?.source ?? "unknown"}</p>
+                <p className="mt-1 text-[11px] opacity-70">Source: {tool?.source ?? "unknown"}</p>
               </article>
             ))}
           </div>
@@ -172,7 +193,7 @@ export function SettingsView({
               disabled={loading}
             >
               <RefreshCcwIcon className="size-4" />
-              Обновить статусы
+              {t("settings.refreshStatuses")}
             </Button>
             <Button
               className="bg-zinc-100 text-zinc-950 hover:bg-zinc-100/90"
@@ -181,18 +202,22 @@ export function SettingsView({
                 setErrorText(null)
                 void installOrUpdateManagedYtdlp()
                   .then(async () => {
-                    onRuntimeMessage?.("yt-dlp установлен/обновлён.")
+                    onRuntimeMessage?.(t("settings.messages.ytdlpInstalled"))
                     await loadStatus(true)
                   })
                   .catch((error) => {
-                    setErrorText(error instanceof Error ? error.message : "Ошибка установки yt-dlp.")
+                    setErrorText(
+                      error instanceof Error
+                        ? error.message
+                        : t("settings.messages.installYtdlpFailed"),
+                    )
                   })
                   .finally(() => setInstalling(false))
               }}
               disabled={installing}
             >
               <DownloadIcon className="size-4" />
-              {installing ? "Установка..." : "Установить / обновить yt-dlp"}
+              {installing ? t("settings.installing") : t("settings.installYtdlp")}
             </Button>
             <Button
               className="bg-zinc-100/12 text-zinc-100 hover:bg-zinc-100/18"
@@ -201,18 +226,22 @@ export function SettingsView({
                 setErrorText(null)
                 void installOrUpdateManagedFfmpeg()
                   .then(async () => {
-                    onRuntimeMessage?.("FFmpeg и FFprobe установлены/обновлены.")
+                    onRuntimeMessage?.(t("settings.messages.ffmpegInstalled"))
                     await loadStatus(true)
                   })
                   .catch((error) => {
-                    setErrorText(error instanceof Error ? error.message : "Ошибка установки FFmpeg.")
+                    setErrorText(
+                      error instanceof Error
+                        ? error.message
+                        : t("settings.messages.installFfmpegFailed"),
+                    )
                   })
                   .finally(() => setInstallingFfmpeg(false))
               }}
               disabled={installingFfmpeg}
             >
               <WrenchIcon className="size-4" />
-              {installingFfmpeg ? "Установка FFmpeg..." : "Установить / обновить FFmpeg"}
+              {installingFfmpeg ? t("settings.installingFfmpeg") : t("settings.installFfmpeg")}
             </Button>
           </div>
         </CardContent>
@@ -222,21 +251,86 @@ export function SettingsView({
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base text-zinc-100">
             <CpuIcon className="size-4 text-zinc-300" />
-            Конфигурация
+            {t("settings.configurationTitle")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {!form || !status ? (
             <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-zinc-400">
-              {loading ? "Подготовка настроек..." : "Настройки пока недоступны."}
+              {loading ? t("settings.loading") : t("settings.unavailable")}
             </div>
           ) : (
             <>
               <div className="space-y-2">
-                <p className="text-xs tracking-[0.18em] text-zinc-500 uppercase">Режим yt-dlp</p>
+                <p className="text-xs tracking-[0.18em] text-zinc-500 uppercase">
+                  {t("settings.languageTitle")}
+                </p>
+                <p className="text-xs text-zinc-400">{t("settings.languageDescription")}</p>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {([
+                    { id: "en", label: t("settings.languageEn") },
+                    { id: "ru", label: t("settings.languageRu") },
+                  ] as const).map((option) => {
+                    const active = form.uiLanguage === option.id
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className={[
+                          "rounded-xl border px-3 py-2 text-left transition",
+                          active
+                            ? "border-zinc-200/35 bg-zinc-100/12 text-zinc-100"
+                            : "border-white/10 bg-white/6 text-zinc-400 hover:border-white/20 hover:text-zinc-200",
+                        ].join(" ")}
+                        disabled={isLanguageSwitching}
+                        onClick={() => {
+                          const nextLanguage = normalizeUiLanguage(option.id) as UiLanguage
+                          if (
+                            nextLanguage === normalizeUiLanguage(i18n.language) ||
+                            isLanguageSwitching
+                          ) {
+                            setForm((previous) =>
+                              previous ? { ...previous, uiLanguage: nextLanguage } : previous,
+                            )
+                            return
+                          }
+                          setIsLanguageSwitching(true)
+                          setStoredUiLanguage(nextLanguage)
+                          setForm((previous) =>
+                            previous ? { ...previous, uiLanguage: nextLanguage } : previous,
+                          )
+                          void i18n
+                            .changeLanguage(nextLanguage)
+                            .catch(() => {})
+                            .finally(() => {
+                              setIsLanguageSwitching(false)
+                            })
+                        }}
+                      >
+                        <p className="text-sm font-medium">{option.label}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs tracking-[0.18em] text-zinc-500 uppercase">{t("settings.ytdlpMode")}</p>
                 <div className="grid gap-2 md:grid-cols-3">
                   {visibleModeOptions.map((option) => {
                     const active = form.ytdlpMode === option.id
+                    const optionLabel =
+                      option.id === "managed"
+                        ? t("settings.mode.managedLabel")
+                        : option.id === "custom"
+                          ? t("settings.mode.customLabel")
+                          : t("settings.mode.systemLabel")
+                    const optionHint =
+                      option.id === "managed"
+                        ? t("settings.mode.managedHint")
+                        : option.id === "custom"
+                          ? t("settings.mode.customHint")
+                          : t("settings.mode.systemHint")
                     return (
                       <button
                         key={option.id}
@@ -253,25 +347,25 @@ export function SettingsView({
                           )
                         }
                       >
-                        <p className="text-sm font-medium">{option.label}</p>
-                        <p className="mt-1 text-xs opacity-80">{option.hint}</p>
+                        <p className="text-sm font-medium">{optionLabel}</p>
+                        <p className="mt-1 text-xs opacity-80">{optionHint}</p>
                       </button>
                     )
                   })}
                 </div>
                 {!status.ytdlpSystemAvailable ? (
-                  <p className="text-[11px] text-zinc-500">
-                    Режим `System` скрыт, потому что yt-dlp не найден в PATH.
-                  </p>
+                  <p className="text-[11px] text-zinc-500">{t("settings.systemModeHidden")}</p>
                 ) : null}
               </div>
 
               <div className="rounded-xl border border-white/10 bg-black/24 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs tracking-[0.14em] text-zinc-500 uppercase">Папка проектов</p>
+                    <p className="text-xs tracking-[0.14em] text-zinc-500 uppercase">
+                      {t("settings.projectsFolder")}
+                    </p>
                     <p className="mt-1 text-xs text-zinc-400 break-all">
-                      Активная папка: {status.projectsDir}
+                      {t("settings.activeFolder", { path: status.projectsDir })}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -293,12 +387,16 @@ export function SettingsView({
                             )
                           })
                           .catch((error) => {
-                            setErrorText(error instanceof Error ? error.message : "Не удалось выбрать папку.")
+                            setErrorText(
+                              error instanceof Error
+                                ? error.message
+                                : t("settings.messages.pickFolderFailed"),
+                            )
                           })
                           .finally(() => setPickingDir(false))
                       }}
                     >
-                      Выбрать папку
+                      {t("settings.selectFolder")}
                     </Button>
                     <Button
                       size="xs"
@@ -310,16 +408,20 @@ export function SettingsView({
                         setErrorText(null)
                         void openProjectsRootDir()
                           .then((path) => {
-                            onRuntimeMessage?.(`Открыта папка проектов: ${path}`)
+                            onRuntimeMessage?.(t("settings.messages.openedFolder", { path }))
                           })
                           .catch((error) => {
-                            setErrorText(error instanceof Error ? error.message : "Не удалось открыть папку.")
+                            setErrorText(
+                              error instanceof Error
+                                ? error.message
+                                : t("settings.messages.openFolderFailed"),
+                            )
                           })
                           .finally(() => setOpeningDir(false))
                       }}
                     >
                       <FolderOpenIcon className="size-3.5" />
-                      Открыть
+                      {t("settings.openFolder")}
                     </Button>
                     <Button
                       size="xs"
@@ -331,7 +433,7 @@ export function SettingsView({
                         )
                       }
                     >
-                      По умолчанию
+                      {t("settings.defaultFolder")}
                     </Button>
                   </div>
                 </div>
@@ -342,12 +444,10 @@ export function SettingsView({
                       previous ? { ...previous, projectsRootDir: event.target.value } : previous,
                     )
                   }
-                  placeholder="Оставьте пустым для managed-пути приложения"
+                  placeholder={t("settings.folderPlaceholder")}
                   className="mt-2 border-white/12 bg-black/20 text-sm"
                 />
-                <p className="mt-1 text-[11px] text-zinc-500">
-                  Пустое значение = managed-хранилище внутри приложения.
-                </p>
+                <p className="mt-1 text-[11px] text-zinc-500">{t("settings.folderHint")}</p>
               </div>
 
               <div className="grid gap-2 md:grid-cols-2">
@@ -365,7 +465,7 @@ export function SettingsView({
                     )
                   }
                 >
-                  Автообновление yt-dlp
+                  {t("settings.autoUpdate")}
                 </button>
                 <button
                   type="button"
@@ -383,7 +483,7 @@ export function SettingsView({
                     )
                   }
                 >
-                  Предпочитать managed/bundled FFmpeg
+                  {t("settings.preferBundled")}
                 </button>
               </div>
 
@@ -392,14 +492,14 @@ export function SettingsView({
                 className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-black/22 px-3 py-2 text-left text-xs text-zinc-300 transition hover:bg-white/6"
                 onClick={() => setShowAdvanced((value) => !value)}
               >
-                <span>Расширенные пути (custom)</span>
+                <span>{t("settings.advancedPaths")}</span>
                 {showAdvanced ? <ChevronUpIcon className="size-4" /> : <ChevronDownIcon className="size-4" />}
               </button>
 
               {showAdvanced ? (
                 <div className="grid gap-3 md:grid-cols-2">
                   <label className="space-y-1">
-                    <p className="text-xs text-zinc-400">Путь к yt-dlp (custom)</p>
+                    <p className="text-xs text-zinc-400">{t("settings.customYtdlp")}</p>
                     <Input
                       value={form.ytdlpCustomPath ?? ""}
                       onChange={(event) =>
@@ -409,13 +509,13 @@ export function SettingsView({
                             : previous,
                         )
                       }
-                      placeholder="D:\\tools\\yt-dlp.exe"
+                      placeholder={isMacLikePlatform ? "/usr/local/bin/yt-dlp" : "D:\\tools\\yt-dlp.exe"}
                       className="border-white/12 bg-black/20 text-sm"
                     />
                   </label>
 
                   <label className="space-y-1">
-                    <p className="text-xs text-zinc-400">Путь к ffmpeg (custom)</p>
+                    <p className="text-xs text-zinc-400">{t("settings.customFfmpeg")}</p>
                     <Input
                       value={form.ffmpegCustomPath ?? ""}
                       onChange={(event) =>
@@ -425,13 +525,13 @@ export function SettingsView({
                             : previous,
                         )
                       }
-                      placeholder="D:\\tools\\ffmpeg.exe"
+                      placeholder={isMacLikePlatform ? "/usr/local/bin/ffmpeg" : "D:\\tools\\ffmpeg.exe"}
                       className="border-white/12 bg-black/20 text-sm"
                     />
                   </label>
 
                   <label className="space-y-1">
-                    <p className="text-xs text-zinc-400">Путь к ffprobe (custom)</p>
+                    <p className="text-xs text-zinc-400">{t("settings.customFfprobe")}</p>
                     <Input
                       value={form.ffprobeCustomPath ?? ""}
                       onChange={(event) =>
@@ -441,7 +541,7 @@ export function SettingsView({
                             : previous,
                         )
                       }
-                      placeholder="D:\\tools\\ffprobe.exe"
+                      placeholder={isMacLikePlatform ? "/usr/local/bin/ffprobe" : "D:\\tools\\ffprobe.exe"}
                       className="border-white/12 bg-black/20 text-sm"
                     />
                   </label>
@@ -465,22 +565,31 @@ export function SettingsView({
                     setSaving(true)
                     setErrorText(null)
                     void saveRuntimeToolsSettings(form)
-                      .then(async () => {
-                        onRuntimeMessage?.("Настройки runtime сохранены.")
+                      .then(async (saved) => {
+                        const language = normalizeUiLanguage(saved.uiLanguage)
+                        setStoredUiLanguage(language)
+                        if (normalizeUiLanguage(i18n.language) !== language) {
+                          await i18n.changeLanguage(language)
+                        }
+                        onRuntimeMessage?.(t("settings.messages.saved"))
                         await loadStatus(true)
                       })
                       .catch((error) => {
-                        setErrorText(error instanceof Error ? error.message : "Не удалось сохранить настройки.")
+                        setErrorText(
+                          error instanceof Error
+                            ? error.message
+                            : t("settings.messages.saveFailed"),
+                        )
                       })
                       .finally(() => setSaving(false))
                   }}
                 >
                   <SaveIcon className="size-4" />
-                  {saving ? "Сохранение..." : "Сохранить настройки"}
+                  {saving ? t("settings.saving") : t("settings.save")}
                 </Button>
                 <div className="flex items-center gap-1 text-xs text-zinc-500">
                   <ShieldCheckIcon className="size-3.5" />
-                  Инструменты исполняются только в Rust backend.
+                  {t("settings.securityHint")}
                 </div>
               </div>
             </>

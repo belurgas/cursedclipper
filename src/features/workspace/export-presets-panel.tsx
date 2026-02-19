@@ -1,4 +1,5 @@
 import { motion } from "framer-motion"
+import { useTranslation } from "react-i18next"
 
 import type { PlatformPreset } from "@/app/types"
 import { SpotlightCard } from "@/shared/react-bits/spotlight-card"
@@ -14,11 +15,12 @@ export function ExportPresetsPanel({
   selectedPresetIds,
   onToggle,
 }: ExportPresetsPanelProps) {
+  const { t } = useTranslation()
   return (
     <SpotlightCard className="rounded-xl border border-white/12 bg-black/28 p-3">
-      <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Платформы экспорта</p>
+      <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">{t("exportPresetsPanel.title")}</p>
       <p className="mt-1 text-xs text-zinc-400">
-        Экспорт в несколько платформ с готовыми ограничениями длительности и формата.
+        {t("exportPresetsPanel.description")}
       </p>
 
       <div className="mt-3 grid grid-cols-1 gap-2">
@@ -40,7 +42,7 @@ export function ExportPresetsPanel({
                 <p className="text-sm font-medium text-zinc-100">{preset.name}</p>
                 <span className="text-[11px] text-zinc-400">{preset.aspect}</span>
               </div>
-              <p className="mt-1 text-xs text-zinc-500">Макс. {preset.maxDuration}</p>
+              <p className="mt-1 text-xs text-zinc-500">{t("exportPresetsPanel.maxDuration", { value: preset.maxDuration })}</p>
               <p className="mt-1 text-xs leading-relaxed text-zinc-400">{preset.description}</p>
             </motion.button>
           )

@@ -1,4 +1,5 @@
 import { motion } from "framer-motion"
+import { useTranslation } from "react-i18next"
 
 import { formatSeconds } from "@/app/mock-data"
 import type { SeriesSegment } from "@/app/types"
@@ -14,16 +15,17 @@ export function SeriesSegmentationPanel({
   segments,
   processing,
 }: SeriesSegmentationPanelProps) {
+  const { t } = useTranslation()
   return (
     <SpotlightCard className="min-w-0 rounded-xl border border-white/12 bg-black/28 p-3">
-      <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Сегментация серии</p>
+      <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">{t("seriesSegmentationPanel.title")}</p>
       <p className="mt-1 text-xs text-zinc-400">
-        Эпизоды, автоматически собранные из смысловых блоков видео.
+        {t("seriesSegmentationPanel.description")}
       </p>
 
       {processing ? (
         <div className="mt-3 rounded-lg border border-white/10 bg-white/4 px-3 py-2">
-          <ShinyText text="Структурируем контент в эпизодические арки..." speed={2.3} className="text-xs" />
+          <ShinyText text={t("seriesSegmentationPanel.processing")} speed={2.3} className="text-xs" />
         </div>
       ) : null}
 

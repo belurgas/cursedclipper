@@ -7,6 +7,7 @@ import {
   UploadIcon,
   WandSparklesIcon,
 } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import type { Project } from "@/app/types"
 import { Button } from "@/components/ui/button"
@@ -58,9 +59,9 @@ const initialForm: FormState = {
   description: "",
 }
 
-function formatSize(bytes?: number | null) {
+function formatSize(bytes?: number | null, unknownLabel = "Unknown size") {
   if (!bytes || bytes <= 0) {
-    return "Размер неизвестен"
+    return unknownLabel
   }
   if (bytes < 1024 * 1024) {
     return `${Math.round(bytes / 1024)} KB`
@@ -139,6 +140,7 @@ function dedupeFormatsByResolution(
 }
 
 export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProjectDialogProps) {
+  const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const { pushToast } = useAppToast()
   const [open, setOpen] = useState(false)
@@ -187,26 +189,26 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
 
   const validation = useMemo(() => {
     const nameError =
-      form.name.trim().length < 3 ? "Название проекта должно быть не короче 3 символов." : ""
+      form.name.trim().length < 3 ? t("createProject.validationNameMin") : ""
     const descriptionError =
       form.description.trim().length < 12
-        ? "Добавьте короткий бриф (не менее 12 символов), чтобы ИИ задал контекст."
+        ? t("createProject.validationBriefMin")
         : ""
     const sourceError =
       sourceMode === "local"
         ? localFile || localFilePath
           ? ""
-          : "Выберите видеофайл с устройства."
+          : t("createProject.validationSelectLocalFile")
         : selectedFormatId
           ? ""
-          : "Проверьте ссылку и выберите формат для импорта."
+          : t("createProject.validationSelectYoutubeFormat")
     return {
       nameError,
       descriptionError,
       sourceError,
       valid: !nameError && !descriptionError && !sourceError,
     }
-  }, [form.description, form.name, localFile, localFilePath, selectedFormatId, sourceMode])
+  }, [form.description, form.name, localFile, localFilePath, selectedFormatId, sourceMode, t])
 
   useEffect(() => {
     if (!probeResult) {
@@ -243,7 +245,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
   const runYoutubeProbe = async () => {
     const trimmedUrl = youtubeUrl.trim()
     if (!trimmedUrl) {
-      setProbeError("Вставьте ссылку на YouTube.")
+      setProbeError(t("createProject.pasteYoutubeUrl"))
       return
     }
 
@@ -256,7 +258,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
       const payload = await probeYoutubeFormats(trimmedUrl)
       setProbeResult(payload)
     } catch (error) {
-      setProbeError(error instanceof Error ? error.message : "Не удалось получить форматы.")
+      setProbeError(error instanceof Error ? error.message : t("createProject.probeFailed"))
     } finally {
       setProbeLoading(false)
     }
@@ -286,6 +288,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
         sourceChannelId?: string
         sourceChannelUrl?: string
         sourceChannelFollowers?: number
+        sourceMetricsUpdatedAt?: string
         importedMediaPath?: string
       }
 
@@ -302,7 +305,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
           !stagedLocalPath && localFile ? URL.createObjectURL(localFile) : undefined
         const localLabel = stagedLocalPath
           ? fileNameFromPath(stagedLocalPath)
-          : localFile?.name ?? "Локальный файл"
+          : localFile?.name ?? t("createProject.localFileFallback")
         sourcePayload = {
           sourceType: "local",
           sourceLabel: localLabel,
@@ -311,10 +314,10 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
           importedMediaPath: stagedLocalPath,
         }
       } else {
-        sourcePayload = {
-          sourceType: "youtube",
-          sourceLabel: probeResult?.title || "YouTube import",
-          sourceUrl: trimmedYoutubeUrl,
+          sourcePayload = {
+            sourceType: "youtube",
+            sourceLabel: probeResult?.title || t("createProject.youtubeImportFallback"),
+            sourceUrl: trimmedYoutubeUrl,
           sourceStatus: "pending",
           sourceUploader: probeResult?.uploader ?? undefined,
           sourceDurationSeconds: probeResult?.duration
@@ -328,6 +331,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
           sourceChannelId: probeResult?.channelId ?? undefined,
           sourceChannelUrl: probeResult?.channelUrl ?? undefined,
           sourceChannelFollowers: probeResult?.channelFollowers ?? undefined,
+          sourceMetricsUpdatedAt: probeResult ? new Date().toISOString() : undefined,
         }
       }
 
@@ -359,7 +363,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
               sourceStatus: "ready",
               importedMediaPath: outputPath,
               sourceUrl: downloadResult.sourceUrl,
-              sourceLabel: probeResult?.title || "YouTube import",
+              sourceLabel: probeResult?.title || t("createProject.youtubeImportFallback"),
               durationSeconds: resolvedDuration,
               sourceDurationSeconds: resolvedDuration,
               sourceUploader: probeResult?.uploader ?? undefined,
@@ -371,6 +375,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
               sourceChannelId: probeResult?.channelId ?? undefined,
               sourceChannelUrl: probeResult?.channelUrl ?? undefined,
               sourceChannelFollowers: probeResult?.channelFollowers ?? undefined,
+              sourceMetricsUpdatedAt: probeResult ? new Date().toISOString() : undefined,
             })
           })
           .catch((error) => {
@@ -381,8 +386,8 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
           })
       } else if (sourceMode === "youtube") {
         pushToast({
-          title: "Проект создан",
-          description: "Источник добавлен как YouTube-ссылка. Скачивание можно запустить позже.",
+          title: t("createProject.projectCreatedTitle"),
+          description: t("createProject.projectCreatedYoutubeLinked"),
           tone: "info",
           durationMs: 3400,
         })
@@ -395,7 +400,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
         reset()
       }, 420)
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Не удалось создать проект.")
+      setSubmitError(error instanceof Error ? error.message : t("createProject.createFailed"))
     } finally {
       setSubmitting(false)
     }
@@ -414,7 +419,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
       <DialogTrigger asChild>
         <Button className="bg-zinc-100 text-zinc-950 hover:bg-zinc-100/90">
           <WandSparklesIcon className="size-4" />
-          Создать проект
+          {t("createProject.createProject")}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[86vh] max-w-3xl overflow-y-auto border-white/12 bg-[#090b10]/95">
@@ -430,9 +435,9 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
             >
               <CheckCircle2Icon className="mx-auto size-10 text-zinc-300" />
               <div>
-                <h3 className="text-lg font-semibold text-zinc-100">Проект создан</h3>
+                <h3 className="text-lg font-semibold text-zinc-100">{t("createProject.projectCreatedTitle")}</h3>
                 <p className="mt-1 text-sm text-zinc-400">
-                  Источник подключен. Можно переходить к монтажу.
+                  {t("createProject.projectCreatedDescription")}
                 </p>
               </div>
             </motion.div>
@@ -445,14 +450,14 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
               transition={{ duration: 0.25 }}
             >
               <DialogHeader>
-                <DialogTitle>Новый проект</DialogTitle>
+                <DialogTitle>{t("createProject.newProjectTitle")}</DialogTitle>
                 <DialogDescription>
-                  Выберите источник, проверьте формат и запустите рабочее пространство.
+                  {t("createProject.newProjectDescription")}
                 </DialogDescription>
               </DialogHeader>
 
               <div className="mt-4 space-y-3">
-                <p className="text-xs tracking-[0.18em] text-zinc-500 uppercase">Источник видео</p>
+                <p className="text-xs tracking-[0.18em] text-zinc-500 uppercase">{t("createProject.videoSource")}</p>
                 <div className="grid gap-2 md:grid-cols-2">
                   <button
                     type="button"
@@ -463,15 +468,15 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                         ? "border-zinc-200/35 bg-zinc-100/10 text-zinc-100"
                         : "border-white/10 bg-white/6 text-zinc-400 hover:border-white/20 hover:text-zinc-200",
                     ].join(" ")}
-                  >
-                    <p className="flex items-center gap-2 text-sm font-medium">
-                      <UploadIcon className="size-4" />
-                      Видео с устройства
-                    </p>
-                    <p className="mt-1 text-xs opacity-80">
-                      Локальный файл для быстрого старта.
-                    </p>
-                  </button>
+                    >
+                      <p className="flex items-center gap-2 text-sm font-medium">
+                        <UploadIcon className="size-4" />
+                        {t("createProject.sourceLocalTitle")}
+                      </p>
+                      <p className="mt-1 text-xs opacity-80">
+                        {t("createProject.sourceLocalDescription")}
+                      </p>
+                    </button>
                   <button
                     type="button"
                     onClick={() => setSourceMode("youtube")}
@@ -481,15 +486,15 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                         ? "border-zinc-200/35 bg-zinc-100/10 text-zinc-100"
                         : "border-white/10 bg-white/6 text-zinc-400 hover:border-white/20 hover:text-zinc-200",
                     ].join(" ")}
-                  >
-                    <p className="flex items-center gap-2 text-sm font-medium">
-                      <Link2Icon className="size-4" />
-                      Ссылка YouTube
-                    </p>
-                    <p className="mt-1 text-xs opacity-80">
-                      Анализ доступных форматов до скачивания.
-                    </p>
-                  </button>
+                    >
+                      <p className="flex items-center gap-2 text-sm font-medium">
+                        <Link2Icon className="size-4" />
+                        {t("createProject.sourceYoutubeTitle")}
+                      </p>
+                      <p className="mt-1 text-xs opacity-80">
+                        {t("createProject.sourceYoutubeDescription")}
+                      </p>
+                    </button>
                 </div>
               </div>
 
@@ -513,14 +518,16 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                           ? fileNameFromPath(localFilePath)
                           : localFile
                             ? localFile.name
-                            : "Файл не выбран"}
+                            : t("createProject.noFileSelected")}
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
                         {localFilePath
                           ? localFilePath
                           : localFile
-                            ? `Размер: ${(localFile.size / (1024 * 1024)).toFixed(1)} MB`
-                            : "Поддерживаются видеофайлы с устройства."}
+                            ? t("createProject.fileSize", {
+                                size: (localFile.size / (1024 * 1024)).toFixed(1),
+                              })
+                            : t("createProject.localFileHint")}
                       </p>
                     </div>
                     <Button
@@ -541,7 +548,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                               setSubmitError(
                                 error instanceof Error
                                   ? error.message
-                                  : "Не удалось выбрать локальный файл.",
+                                  : t("createProject.pickLocalFileFailed"),
                               )
                             })
                           return
@@ -550,7 +557,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                       }}
                     >
                       <UploadIcon className="size-4" />
-                      Выбрать файл
+                      {t("createProject.pickFile")}
                     </Button>
                   </div>
                 </div>
@@ -571,7 +578,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                       }}
                       disabled={probeLoading}
                     >
-                      {probeLoading ? "Проверка..." : "Проверить форматы"}
+                      {probeLoading ? t("createProject.probing") : t("createProject.checkFormats")}
                     </Button>
                   </div>
 
@@ -586,11 +593,11 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                       <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
                         <p className="text-sm font-medium text-zinc-100">{probeResult.title}</p>
                 <p className="mt-1 text-xs text-zinc-500">
-                  {probeResult.uploader ?? "Канал не определен"}
+                  {probeResult.uploader ?? t("createProject.channelUnknown")}
                 </p>
                 {probeResult.duration ? (
                   <p className="mt-1 text-xs text-zinc-500">
-                    Длительность: {Math.round(probeResult.duration)} c
+                    {t("createProject.durationSeconds", { seconds: Math.round(probeResult.duration) })}
                   </p>
                 ) : null}
                       </div>
@@ -605,7 +612,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                               : "border-white/10 bg-white/6 text-zinc-400 hover:text-zinc-200",
                           ].join(" ")}
                         >
-                          С аудио
+                          {t("createProject.withAudio")}
                         </button>
                         <button
                           type="button"
@@ -617,15 +624,14 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                               : "border-white/10 bg-white/6 text-zinc-400 hover:text-zinc-200",
                           ].join(" ")}
                         >
-                          Без аудио
+                          {t("createProject.withoutAudio")}
                         </button>
                       </div>
                       {audioPreference === "with-audio" &&
                       selectableFormats.length > 0 &&
                       selectableFormats.every((format) => format.videoOnly) ? (
                         <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-400">
-                          Прямых MP4 форматов с аудио нет. Будет использован видео-поток и аудио
-                          добавится автоматически при загрузке.
+                          {t("createProject.noDirectMp4WithAudio")}
                         </div>
                       ) : null}
                       <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
@@ -647,9 +653,9 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                                 {format.resolution} • {format.ext.toUpperCase()} • {format.id}
                               </p>
                               <p className="mt-1 text-xs opacity-80">
-                                {formatSize(format.filesize)} •{" "}
-                                {format.videoOnly ? "Видео без аудио" : "Видео + аудио"} •{" "}
-                                {format.fps ? `${Math.round(format.fps)} fps` : "fps n/a"}
+                                {formatSize(format.filesize, t("createProject.sizeUnknown"))} •{" "}
+                                {format.videoOnly ? t("createProject.videoNoAudio") : t("createProject.videoWithAudio")} •{" "}
+                                {format.fps ? `${Math.round(format.fps)} fps` : t("createProject.fpsNa")}
                               </p>
                             </button>
                           )
@@ -657,8 +663,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                       </div>
                       {selectableFormats.length === 0 ? (
                         <div className="rounded-lg border border-rose-300/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
-                          Нет подходящих видеоформатов. Попробуйте другую ссылку или обновите
-                          yt-dlp/FFmpeg.
+                          {t("createProject.noFormats")}
                         </div>
                       ) : null}
                       <button
@@ -671,7 +676,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                         ].join(" ")}
                         onClick={() => setDownloadOnCreate((value) => !value)}
                       >
-                        Скачивать видео сразу при создании проекта
+                        {t("createProject.downloadOnCreate")}
                       </button>
                     </div>
                   ) : null}
@@ -680,20 +685,20 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
 
               <FieldGroup className="mt-4">
                 <Field>
-                  <FieldLabel htmlFor="project-name">Название проекта</FieldLabel>
+                  <FieldLabel htmlFor="project-name">{t("createProject.nameLabel")}</FieldLabel>
                   <Input
                     id="project-name"
                     value={form.name}
                     onChange={(event) =>
                       setForm((previous) => ({ ...previous, name: event.target.value }))
                     }
-                    placeholder="Например: Интервью основателя - выпуск 13"
+                    placeholder={t("createProject.namePlaceholder")}
                     className="border-white/12 bg-black/20"
                   />
                   <FieldError>{touched ? validation.nameError : ""}</FieldError>
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor="project-description">Бриф</FieldLabel>
+                  <FieldLabel htmlFor="project-description">{t("createProject.briefLabel")}</FieldLabel>
                   <Textarea
                     id="project-description"
                     value={form.description}
@@ -703,11 +708,11 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                         description: event.target.value,
                       }))
                     }
-                    placeholder="Опишите цель, аудиторию и стиль нарезки."
+                    placeholder={t("createProject.briefPlaceholder")}
                     className="min-h-24 border-white/12 bg-black/20"
                   />
                   <FieldDescription>
-                    Бриф определяет стартовые рекомендации ИИ и сценарий публикации.
+                    {t("createProject.briefHint")}
                   </FieldDescription>
                   <FieldError>{touched ? validation.descriptionError : ""}</FieldError>
                 </Field>
@@ -726,7 +731,7 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                   className="border-white/15 bg-transparent text-zinc-200 hover:bg-white/8"
                   onClick={() => setOpen(false)}
                 >
-                  Отмена
+                  {t("createProject.cancel")}
                 </Button>
                 <Button
                   onClick={() => {
@@ -738,10 +743,10 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
                   {submitting ? (
                     <>
                       <DownloadCloudIcon className="size-4" />
-                      Подготовка источника...
+                      {t("createProject.preparingSource")}
                     </>
                   ) : (
-                    "Создать проект"
+                    t("createProject.createProject")
                   )}
                 </Button>
               </DialogFooter>

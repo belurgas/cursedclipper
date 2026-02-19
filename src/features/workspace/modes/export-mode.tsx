@@ -4,24 +4,36 @@ import {
   DownloadIcon,
   FolderOpenIcon,
   ImageIcon,
+  Redo2Icon,
   RefreshCcwIcon,
   SparklesIcon,
   TagIcon,
   TypeIcon,
+  Undo2Icon,
   UploadIcon,
 } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { formatSeconds } from "@/app/mock-data"
 import type {
+  ClipCanvasAspect,
+  ClipCanvasDraft,
   ClipSegment,
   ExportClipDraft,
   PlatformPreset,
+  SubtitlePreset,
   ThumbnailTemplate,
 } from "@/app/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { WorkspaceController } from "@/features/workspace/workspace-controller-types"
+import { subtitlePresets as builtInSubtitlePresets } from "@/features/workspace/mock-ai"
+import {
+  defaultResolutionByAspect,
+  normalizeClipCanvasResolution,
+  parseClipCanvasResolution,
+} from "@/features/workspace/canvas-presets"
 import {
   exportClipsBatch,
   openPathInFileManager,
@@ -54,6 +66,100 @@ const parseAspectRatio = (value: string) => {
   return `${width} / ${height}`
 }
 
+const normalizeCanvasAspect = (value: string | null | undefined): ClipCanvasAspect => {
+  const compact = (value ?? "").replace(/\s+/g, "")
+  if (compact === "9:16") {
+    return "9:16"
+  }
+  if (compact === "16:9") {
+    return "16:9"
+  }
+  if (compact === "1:1") {
+    return "1:1"
+  }
+  return "16:9"
+}
+
+const resolveErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  if (typeof error === "string" && error.trim()) {
+    return error
+  }
+  if (error && typeof error === "object" && "message" in error) {
+    const candidate = (error as { message?: unknown }).message
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate
+    }
+  }
+  return fallback
+}
+
+const defaultCanvasDraft = (aspect: string): ClipCanvasDraft => ({
+  aspect: normalizeCanvasAspect(aspect),
+  resolution: defaultResolutionByAspect[normalizeCanvasAspect(aspect)],
+  fitMode: "cover",
+  zoom: 1,
+  offsetX: 0,
+  offsetY: 0,
+  subtitlePosition: "bottom",
+  subtitleOffsetX: 0,
+  subtitleOffsetY: 0,
+  subtitleBoxWidth: 1,
+  subtitleBoxHeight: 1,
+})
+
+const normalizeCanvasDraft = (
+  value: Partial<ClipCanvasDraft> | undefined,
+  fallbackAspect: string,
+): ClipCanvasDraft => {
+  const base = defaultCanvasDraft(fallbackAspect)
+  if (!value) {
+    return base
+  }
+  const aspect = value.aspect
+    ? normalizeCanvasAspect(value.aspect)
+    : normalizeCanvasAspect(fallbackAspect)
+  return {
+    aspect,
+    resolution: normalizeClipCanvasResolution(
+      aspect,
+      value.resolution,
+    ),
+    fitMode: value.fitMode === "contain" ? "contain" : "cover",
+    zoom:
+      typeof value.zoom === "number" && Number.isFinite(value.zoom)
+        ? Math.min(3, Math.max(0.35, value.zoom))
+        : base.zoom,
+    offsetX:
+      typeof value.offsetX === "number" && Number.isFinite(value.offsetX)
+        ? Math.min(1, Math.max(-1, value.offsetX))
+        : base.offsetX,
+    offsetY:
+      typeof value.offsetY === "number" && Number.isFinite(value.offsetY)
+        ? Math.min(1, Math.max(-1, value.offsetY))
+        : base.offsetY,
+    subtitlePosition: "bottom",
+    subtitleOffsetX:
+      typeof value.subtitleOffsetX === "number" && Number.isFinite(value.subtitleOffsetX)
+        ? Math.min(1, Math.max(-1, value.subtitleOffsetX))
+        : base.subtitleOffsetX,
+    subtitleOffsetY:
+      typeof value.subtitleOffsetY === "number" && Number.isFinite(value.subtitleOffsetY)
+        ? Math.min(1, Math.max(-1, value.subtitleOffsetY))
+        : base.subtitleOffsetY,
+    subtitleBoxWidth:
+      typeof value.subtitleBoxWidth === "number" && Number.isFinite(value.subtitleBoxWidth)
+        ? Math.min(1.65, Math.max(0.55, value.subtitleBoxWidth))
+        : base.subtitleBoxWidth,
+    subtitleBoxHeight:
+      typeof value.subtitleBoxHeight === "number" && Number.isFinite(value.subtitleBoxHeight)
+        ? Math.min(1.65, Math.max(0.55, value.subtitleBoxHeight))
+        : base.subtitleBoxHeight,
+  }
+}
+
 function makeDefaultDraft(
   clip: ClipSegment,
   presets: PlatformPreset[],
@@ -69,13 +175,16 @@ function makeDefaultDraft(
       customCoverName: null,
     }
   }
+  const fallbackAspect = presets[0]?.aspect ?? "16:9"
 
   return {
     title: clip.title,
-    description: `Клип ${formatSeconds(clip.start)}-${formatSeconds(clip.end)}. Ключевой фрагмент для короткого формата.`,
+    description: `Clip ${formatSeconds(clip.start)}-${formatSeconds(clip.end)}. Key excerpt for short-form content.`,
     tags: "",
+    subtitleEnabled: false,
     platformIds: defaultPlatformIds,
     platformCovers,
+    canvas: defaultCanvasDraft(fallbackAspect),
   }
 }
 
@@ -118,6 +227,19 @@ function toCoverPreviewUrl(
   return coverPath
 }
 
+function hasRenderableProfile(preset: SubtitlePreset | null | undefined): boolean {
+  if (!preset) {
+    return false
+  }
+  const profile = preset.renderProfile
+  return Boolean(
+    profile &&
+      typeof profile.fontFamily === "string" &&
+      Number.isFinite(profile.fontSize) &&
+      Number.isFinite(profile.maxWordsPerLine),
+  )
+}
+
 export default function ExportMode({
   controller,
   projectId,
@@ -125,12 +247,15 @@ export default function ExportMode({
   sourcePath,
   onOpenCoverMode,
 }: ExportModeProps) {
-  const { clips, actions, activeClipId, ai, transcript, exports } = controller
+  const { clips, actions, activeClipId, ai, transcript, exports, timeline } = controller
+  const { t } = useTranslation()
   const { pushToast } = useAppToast()
   const uploadInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const objectUrlsRef = useRef<Set<string>>(new Set())
   const [isExporting, setIsExporting] = useState(false)
   const [webBlobMap, setWebBlobMap] = useState<Record<string, string>>({})
+  const hasSourcePath = (sourcePath?.trim().length ?? 0) > 0
+  const subtitlesAvailable = transcript.words.length > 0
 
   useEffect(() => {
     const objectUrls = objectUrlsRef.current
@@ -171,6 +296,25 @@ export default function ExportMode({
     () => new Set(ai.platformPresets.map((preset) => preset.id)),
     [ai.platformPresets],
   )
+  const builtInSubtitleById = useMemo(
+    () => new Map(builtInSubtitlePresets.map((preset) => [preset.id, preset])),
+    [],
+  )
+  const activeSubtitlePreset = useMemo(() => {
+    const selected =
+      ai.subtitlePresets.find((preset) => preset.id === ai.activeSubtitlePresetId) ?? null
+    if (hasRenderableProfile(selected)) {
+      return selected
+    }
+    if (selected?.id && hasRenderableProfile(builtInSubtitleById.get(selected.id))) {
+      return builtInSubtitleById.get(selected.id) ?? null
+    }
+    const firstRuntime = ai.subtitlePresets.find((preset) => hasRenderableProfile(preset)) ?? null
+    if (firstRuntime) {
+      return firstRuntime
+    }
+    return builtInSubtitlePresets.find((preset) => hasRenderableProfile(preset)) ?? null
+  }, [ai.activeSubtitlePresetId, ai.subtitlePresets, builtInSubtitleById])
 
   const buildClipDraft = useCallback(
     (clip: ClipSegment, existing?: ExportClipDraft): ExportClipDraft => {
@@ -180,6 +324,10 @@ export default function ExportMode({
 
       const merged = makeDefaultDraft(clip, ai.platformPresets, defaultPlatformIds, defaultTemplateId)
       const safePlatformIds = existing.platformIds.filter((id) => validPlatformIdSet.has(id))
+      const primaryPlatform = ai.platformPresets.find((preset) =>
+        safePlatformIds.includes(preset.id),
+      )
+      const fallbackAspect = primaryPlatform?.aspect ?? ai.platformPresets[0]?.aspect ?? "16:9"
 
       for (const preset of ai.platformPresets) {
         const previousCover = existing.platformCovers[preset.id]
@@ -202,10 +350,14 @@ export default function ExportMode({
         title: existing.title || merged.title,
         description: existing.description || merged.description,
         tags: existing.tags ?? "",
+        subtitleEnabled:
+          subtitlesAvailable &&
+          (typeof existing.subtitleEnabled === "boolean" ? existing.subtitleEnabled : false),
         platformIds: safePlatformIds.length > 0 ? safePlatformIds : merged.platformIds,
+        canvas: normalizeCanvasDraft(existing.canvas, fallbackAspect),
       }
     },
-    [ai.platformPresets, defaultPlatformIds, defaultTemplateId, validPlatformIdSet],
+    [ai.platformPresets, defaultPlatformIds, defaultTemplateId, subtitlesAvailable, validPlatformIdSet],
   )
 
   const draftsByClip = useMemo(() => {
@@ -258,6 +410,23 @@ export default function ExportMode({
     actions.setExportClipDrafts(next)
   }
 
+  const revokeVirtualCover = (virtualPath: string | null | undefined) => {
+    if (!virtualPath || !virtualPath.startsWith("blob:")) {
+      return
+    }
+    setWebBlobMap((previous) => {
+      const blobUrl = previous[virtualPath]
+      if (!blobUrl) {
+        return previous
+      }
+      URL.revokeObjectURL(blobUrl)
+      objectUrlsRef.current.delete(blobUrl)
+      const next = { ...previous }
+      delete next[virtualPath]
+      return next
+    })
+  }
+
   const updateMetadataField = (
     clipId: string,
     key: "title" | "description" | "tags",
@@ -279,8 +448,8 @@ export default function ExportMode({
   const setGeneratedCover = (clipId: string, presetId: string) => {
     if (ai.thumbnailTemplates.length === 0) {
       pushToast({
-        title: "Шаблоны недоступны",
-        description: "Сначала сгенерируйте обложки в соответствующем режиме.",
+        title: t("exportMode.templatesUnavailableTitle"),
+        description: t("exportMode.templatesUnavailableDescription"),
         tone: "info",
         durationMs: 2800,
       })
@@ -288,6 +457,7 @@ export default function ExportMode({
     }
     updateDraft(clipId, (draft) => {
       const current = draft.platformCovers[presetId]
+      revokeVirtualCover(current?.customCoverPath)
       const currentIndex = ai.thumbnailTemplates.findIndex(
         (template) => template.id === current?.templateId,
       )
@@ -346,18 +516,7 @@ export default function ExportMode({
   const removeCustomCover = (clipId: string, presetId: string) => {
     const draft = draftsByClip[clipId]
     const current = draft?.platformCovers[presetId]
-    if (current?.customCoverPath?.startsWith("blob:")) {
-      const blobUrl = webBlobMap[current.customCoverPath]
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl)
-        objectUrlsRef.current.delete(blobUrl)
-      }
-      setWebBlobMap((previous) => {
-        const next = { ...previous }
-        delete next[current.customCoverPath!]
-        return next
-      })
-    }
+    revokeVirtualCover(current?.customCoverPath)
     updateDraft(clipId, (prev) => ({
       ...prev,
       platformCovers: {
@@ -381,6 +540,8 @@ export default function ExportMode({
     if (!file) {
       return
     }
+    const existingCoverPath = draftsByClip[clipId]?.platformCovers[presetId]?.customCoverPath ?? null
+    revokeVirtualCover(existingCoverPath)
     const blobUrl = URL.createObjectURL(file)
     const virtualPath = `blob:${Math.random().toString(36).slice(2, 10)}`
     objectUrlsRef.current.add(blobUrl)
@@ -414,7 +575,11 @@ export default function ExportMode({
     const hookReason = ai.hookCandidates[0]?.reasoning
     const description = hookReason
       ? `${projectName}: ${hookReason}`
-      : `${projectName}. Фрагмент ${formatSeconds(clip.start)}-${formatSeconds(clip.end)} с ключевой мыслью спикера.`
+      : t("exportMode.generatedDescriptionFallback", {
+          projectName,
+          start: formatSeconds(clip.start),
+          end: formatSeconds(clip.end),
+        })
     updateMetadataField(clip.id, "description", description)
   }
 
@@ -432,14 +597,13 @@ export default function ExportMode({
     const trimmedSourcePath = sourcePath?.trim() ?? ""
     if (!trimmedSourcePath) {
       pushToast({
-        title: "Нет исходного видео",
-        description: "Для экспорта нужен импортированный файл проекта.",
+        title: t("exportMode.noSourceTitle"),
+        description: t("exportMode.noSourceDescription"),
         tone: "error",
         durationMs: 3600,
       })
       return null
     }
-
     const tasks: ClipBatchExportRequest["tasks"] = []
     for (const clipId of targetClipIds) {
       const clip = clipById.get(clipId)
@@ -459,12 +623,26 @@ export default function ExportMode({
           !cover.customCoverPath.startsWith("blob:")
             ? cover.customCoverPath
             : null
+        const effectiveCanvas = normalizeCanvasDraft(draft.canvas, draft.canvas.aspect)
+        const outputResolution = parseClipCanvasResolution(effectiveCanvas.resolution)
         tasks.push({
           clipId: clip.id,
           platformId: preset.id,
-          aspect: preset.aspect,
+          aspect: effectiveCanvas.aspect,
           start: clip.start,
           end: clip.end,
+          outputWidth: outputResolution?.width ?? null,
+          outputHeight: outputResolution?.height ?? null,
+          fitMode: effectiveCanvas.fitMode,
+          renderZoom: effectiveCanvas.zoom,
+          renderOffsetX: effectiveCanvas.offsetX,
+          renderOffsetY: effectiveCanvas.offsetY,
+          subtitlesEnabled: Boolean(draft.subtitleEnabled),
+          subtitlePositionOverride: effectiveCanvas.subtitlePosition,
+          subtitleOffsetX: effectiveCanvas.subtitleOffsetX,
+          subtitleOffsetY: effectiveCanvas.subtitleOffsetY,
+          subtitleBoxWidth: effectiveCanvas.subtitleBoxWidth,
+          subtitleBoxHeight: effectiveCanvas.subtitleBoxHeight,
           title: draft.title.trim() || clip.title,
           description: draft.description.trim() || null,
           tags: draft.tags.trim() || null,
@@ -474,10 +652,29 @@ export default function ExportMode({
     }
     if (tasks.length === 0) {
       pushToast({
-        title: "Нечего экспортировать",
-        description: "Выберите платформы хотя бы для одного клипа.",
+        title: t("exportMode.nothingToExportTitle"),
+        description: t("exportMode.nothingToExportDescription"),
         tone: "info",
         durationMs: 2800,
+      })
+      return null
+    }
+    const hasSubtitleTasks = tasks.some((task) => Boolean(task.subtitlesEnabled))
+    if (hasSubtitleTasks && !activeSubtitlePreset) {
+      pushToast({
+        title: t("exportMode.subtitlesUnavailableTitle"),
+        description: t("exportMode.subtitlesUnavailableDescription"),
+        tone: "error",
+        durationMs: 3600,
+      })
+      return null
+    }
+    if (hasSubtitleTasks && transcript.words.length === 0) {
+      pushToast({
+        title: t("exportMode.noSubtitleDataTitle"),
+        description: t("exportMode.noSubtitleDataDescription"),
+        tone: "info",
+        durationMs: 3400,
       })
       return null
     }
@@ -488,6 +685,16 @@ export default function ExportMode({
       sourcePath: trimmedSourcePath,
       taskId: `clip-export:${projectId}`,
       tasks,
+      subtitles:
+        hasSubtitleTasks && activeSubtitlePreset
+          ? {
+              enabled: true,
+              presetId: activeSubtitlePreset.id,
+              presetName: activeSubtitlePreset.name,
+              renderProfile: activeSubtitlePreset.renderProfile,
+              words: transcript.words,
+            }
+          : null,
     }
   }
 
@@ -500,8 +707,8 @@ export default function ExportMode({
     try {
       const result = await exportClipsBatch(request)
       pushToast({
-        title: "Экспорт завершен",
-        description: `Готово файлов: ${result.exportedCount}. Открыть папку экспорта?`,
+        title: t("exportMode.exportCompletedTitle"),
+        description: t("exportMode.exportCompletedDescription", { count: result.exportedCount }),
         tone: "success",
         durationMs: 3400,
       })
@@ -510,8 +717,8 @@ export default function ExportMode({
       }
     } catch (error) {
       pushToast({
-        title: "Ошибка экспорта",
-        description: error instanceof Error ? error.message : "Не удалось выполнить экспорт.",
+        title: t("exportMode.exportFailedTitle"),
+        description: resolveErrorMessage(error, t("exportMode.exportFailedDescription")),
         tone: "error",
         durationMs: 4200,
       })
@@ -535,7 +742,7 @@ export default function ExportMode({
     return (
       <div className="grid h-full min-h-[420px] place-content-center gap-2 rounded-xl border border-white/10 bg-black/24 text-zinc-500">
         <DownloadIcon className="mx-auto size-5" />
-        <p className="text-sm">Создайте хотя бы один клип, чтобы открыть экспорт.</p>
+        <p className="text-sm">{t("exportMode.emptyState")}</p>
       </div>
     )
   }
@@ -544,27 +751,52 @@ export default function ExportMode({
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-x-hidden overflow-y-auto pr-1 pb-2">
       <div className="rounded-xl border border-white/10 bg-black/24 px-3 py-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Экспорт клипов</p>
+          <div className="space-y-2">
+            <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">{t("exportMode.title")}</p>
             <p className="mt-1 text-xs text-zinc-400">
-              Для каждого клипа настройте метаданные, платформы и отдельные обложки по каждой платформе.
+              {t("exportMode.description")}
+            </p>
+            <p className="text-[11px] text-zinc-500">
+              {t("exportMode.subtitleHint")}
             </p>
           </div>
-          <Button
-            size="sm"
-            className="bg-zinc-100 text-zinc-950 hover:bg-zinc-100/90"
-            onClick={exportAllClips}
-            disabled={isExporting || !sourcePath}
-          >
-            <FolderOpenIcon className="size-4" />
-            Экспортировать всё
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="xs"
+              variant="outline"
+              className="border-white/14 bg-transparent text-zinc-300 hover:bg-white/8"
+              onClick={actions.undoTimeline}
+              disabled={!timeline.canUndo || isExporting}
+            >
+              <Undo2Icon className="size-3.5" />
+              {t("exportMode.undo")}
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              className="border-white/14 bg-transparent text-zinc-300 hover:bg-white/8"
+              onClick={actions.redoTimeline}
+              disabled={!timeline.canRedo || isExporting}
+            >
+              <Redo2Icon className="size-3.5" />
+              {t("exportMode.redo")}
+            </Button>
+            <Button
+              size="sm"
+              className="bg-zinc-100 text-zinc-950 hover:bg-zinc-100/90"
+              onClick={exportAllClips}
+              disabled={isExporting || !hasSourcePath}
+            >
+              <FolderOpenIcon className="size-4" />
+              {t("exportMode.exportAll")}
+            </Button>
+          </div>
         </div>
       </div>
 
       <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(250px,0.7fr)_minmax(0,1fr)]">
         <section className="min-h-0 rounded-xl border border-white/10 bg-black/24 p-2.5">
-          <p className="mb-2 text-xs tracking-[0.14em] text-zinc-500 uppercase">Клипы проекта</p>
+          <p className="mb-2 text-xs tracking-[0.14em] text-zinc-500 uppercase">{t("exportMode.projectClips")}</p>
           <div className="grid max-h-full gap-2 overflow-auto pr-1">
             {clips.map((clip) => {
               const draft = draftsByClip[clip.id]
@@ -592,7 +824,11 @@ export default function ExportMode({
                     </span>
                   </div>
                   <p className="mt-1 text-[11px] text-zinc-500">
-                    Платформ: {selectedCount} · Обложки: {readyCount}/{selectedCount}
+                    {t("exportMode.platformsAndCovers", {
+                      platforms: selectedCount,
+                      coversReady: readyCount,
+                      coversTotal: selectedCount,
+                    })}
                   </p>
                 </button>
               )
@@ -617,16 +853,16 @@ export default function ExportMode({
                     className="border-white/14 bg-transparent text-zinc-300 hover:bg-white/8"
                     onClick={onOpenCoverMode}
                   >
-                    Режим обложек
+                    {t("exportMode.coverMode")}
                   </Button>
                   <Button
                     size="sm"
                     className="bg-zinc-100 text-zinc-950 hover:bg-zinc-100/90"
                     onClick={exportActiveClip}
-                    disabled={isExporting || !sourcePath}
+                    disabled={isExporting || !hasSourcePath}
                   >
                     <DownloadIcon className="size-4" />
-                    Экспортировать
+                    {t("exportMode.exportOne")}
                   </Button>
                 </div>
               </div>
@@ -634,7 +870,7 @@ export default function ExportMode({
               <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-zinc-500">Название</p>
+                    <p className="text-xs text-zinc-500">{t("exportMode.nameLabel")}</p>
                     <Button
                       size="xs"
                       variant="outline"
@@ -642,7 +878,7 @@ export default function ExportMode({
                       onClick={() => generateTitle(activeClip)}
                     >
                       <TypeIcon className="size-3.5" />
-                      Сгенерировать
+                      {t("exportMode.generate")}
                     </Button>
                   </div>
                   <Input
@@ -651,13 +887,13 @@ export default function ExportMode({
                       updateMetadataField(activeClip.id, "title", event.target.value)
                     }
                     className="border-white/12 bg-black/22"
-                    placeholder="Название клипа"
+                    placeholder={t("exportMode.namePlaceholder")}
                   />
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-zinc-500">Теги</p>
+                    <p className="text-xs text-zinc-500">{t("exportMode.tagsLabel")}</p>
                     <Button
                       size="xs"
                       variant="outline"
@@ -665,7 +901,7 @@ export default function ExportMode({
                       onClick={() => generateTags(activeClip)}
                     >
                       <TagIcon className="size-3.5" />
-                      Подобрать
+                      {t("exportMode.pickTags")}
                     </Button>
                   </div>
                   <Input
@@ -674,14 +910,14 @@ export default function ExportMode({
                       updateMetadataField(activeClip.id, "tags", event.target.value)
                     }
                     className="border-white/12 bg-black/22"
-                    placeholder="#тег1 #тег2 #тег3"
+                    placeholder={t("exportMode.tagsPlaceholder")}
                   />
                 </div>
               </div>
 
               <div className="mt-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs text-zinc-500">Описание</p>
+                  <p className="text-xs text-zinc-500">{t("exportMode.descriptionLabel")}</p>
                   <Button
                     size="xs"
                     variant="outline"
@@ -689,7 +925,7 @@ export default function ExportMode({
                     onClick={() => generateDescription(activeClip)}
                   >
                     <SparklesIcon className="size-3.5" />
-                    Сгенерировать
+                    {t("exportMode.generate")}
                   </Button>
                 </div>
                 <Textarea
@@ -698,12 +934,12 @@ export default function ExportMode({
                     updateMetadataField(activeClip.id, "description", event.target.value)
                   }
                   className="min-h-[92px] border-white/12 bg-black/22"
-                  placeholder="Описание для публикации"
+                  placeholder={t("exportMode.descriptionPlaceholder")}
                 />
               </div>
 
               <div className="mt-3">
-                <p className="text-xs text-zinc-500">Платформы экспорта</p>
+                <p className="text-xs text-zinc-500">{t("exportMode.platformsLabel")}</p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {ai.platformPresets.map((preset) => {
                     const selected = activeDraft.platformIds.includes(preset.id)
@@ -758,7 +994,7 @@ export default function ExportMode({
                         {cover?.coverMode === "custom" && coverPreview ? (
                           <img
                             src={coverPreview}
-                            alt={`Обложка ${preset.name}`}
+                            alt={t("exportMode.coverAlt", { platform: preset.name })}
                             className="h-full w-full object-cover"
                           />
                         ) : (
@@ -785,7 +1021,7 @@ export default function ExportMode({
                           onClick={() => setGeneratedCover(activeClip.id, platformId)}
                         >
                           <RefreshCcwIcon className="size-3.5" />
-                          Сгенерировать
+                          {t("exportMode.generate")}
                         </Button>
                         <Button
                           size="xs"
@@ -794,7 +1030,7 @@ export default function ExportMode({
                           onClick={() => void openUploadPicker(activeClip.id, platformId)}
                         >
                           <UploadIcon className="size-3.5" />
-                          Поставить свою
+                          {t("exportMode.useCustomCover")}
                         </Button>
                         {cover?.coverMode === "custom" ? (
                           <Button
@@ -803,7 +1039,7 @@ export default function ExportMode({
                             className="border-white/14 bg-transparent text-zinc-300 hover:bg-white/8"
                             onClick={() => removeCustomCover(activeClip.id, platformId)}
                           >
-                            Сброс
+                            {t("exportMode.resetCover")}
                           </Button>
                         ) : null}
                         {!isTauriRuntime() ? (
@@ -825,8 +1061,8 @@ export default function ExportMode({
                       <p className="mt-1.5 flex items-center gap-1 text-[11px] text-zinc-500">
                         <ImageIcon className="size-3.5" />
                         {cover?.coverMode === "custom"
-                          ? cover.customCoverName || "Пользовательская обложка"
-                          : `Шаблон: ${template?.name ?? "не выбран"}`}
+                          ? cover.customCoverName || t("exportMode.customCoverLabel")
+                          : t("exportMode.templateLabel", { name: template?.name ?? t("exportMode.templateNotSelected") })}
                       </p>
                     </article>
                   )

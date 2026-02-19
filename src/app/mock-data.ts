@@ -1,10 +1,10 @@
 import type { NewsItem, Project, TranscriptWord } from "@/app/types"
 
 const script = `
-модель уже определила самые сильные хуки в этом интервью и ранжировала их по эмоциональной ясности и потенциалу удержания.
-теперь можно убрать паузы выровнять ритм и подготовить версии для reels shorts telegram и вертикальных публикаций.
-пока идет анализ зафиксируйте ключевые слова отметьте смысловые повороты и сохраните пики энергии спикера.
-каждое слово в этой панели привязано ко времени поэтому клипы можно собирать точно еще до финального рендера.
+the model already identified the strongest hooks in this interview and ranked them by emotional clarity and retention potential.
+now you can remove pauses, align pacing, and prepare versions for reels, shorts, telegram, and other vertical platforms.
+while analysis is running, capture key phrases, mark semantic turning points, and preserve speaker energy peaks.
+every word in this panel is time-linked, so clips can be assembled precisely before the final render.
 `
   .trim()
   .replace(/\s+/g, " ")
@@ -12,36 +12,36 @@ const script = `
 export const initialProjects: Project[] = [
   {
     id: "p_01",
-    name: "История основателя - выпуск 12",
-    description: "Нарративная сборка о запуске продукта и первых продажах.",
-    updatedAt: "5 мин назад",
+    name: "Founder story - episode 12",
+    description: "Narrative assembly about product launch and first sales.",
+    updatedAt: "5m ago",
     clips: 8,
     durationSeconds: 1520,
     status: "ready",
   },
   {
     id: "p_02",
-    name: "Отзывы кампании",
-    description: "Реакции аудитории, сгруппированные по основным возражениям.",
-    updatedAt: "18 мин назад",
+    name: "Campaign feedback",
+    description: "Audience reactions grouped by key objections.",
+    updatedAt: "18m ago",
     clips: 5,
     durationSeconds: 940,
     status: "processing",
   },
   {
     id: "p_03",
-    name: "Пакет подкаста креатора",
-    description: "Недельный набор вертикальных клипов для Shorts и TikTok.",
-    updatedAt: "1 ч назад",
+    name: "Creator podcast pack",
+    description: "Weekly set of vertical clips for Shorts and TikTok.",
+    updatedAt: "1h ago",
     clips: 11,
     durationSeconds: 2840,
     status: "ready",
   },
   {
     id: "p_04",
-    name: "Ключевые моменты вебинара",
-    description: "Сегменты по фичам с акцентом на CTA и выгоду.",
-    updatedAt: "2 ч назад",
+    name: "Webinar highlights",
+    description: "Feature segments with CTA and value focus.",
+    updatedAt: "2h ago",
     clips: 3,
     durationSeconds: 3210,
     status: "draft",
@@ -51,101 +51,101 @@ export const initialProjects: Project[] = [
 export const newsFeed: NewsItem[] = [
   {
     id: "n_01",
-    label: "Рынок",
-    title: "Короткие форматы с экспертными монологами показывают рост досмотров.",
-    timestamp: "Сегодня",
+    label: "Market",
+    title: "Short-form expert monologues continue to increase completion rates.",
+    timestamp: "Today",
     coverEmoji: "📈",
-    author: "Команда аналитики Cursed Clipper",
-    summary: "Почему экспертный монолог снова в топе коротких форматов и как это использовать в нарезке.",
+    author: "Cursed Clipper Analytics Team",
+    summary: "Why expert monologues are back on top in short-form and how to apply this in clipping.",
     contentMarkdown: `
-# 📈 Экспертные монологи снова растут
+# 📈 Expert monologues are rising again
 
-Короткие видео с **четким экспертным тезисом** показывают лучший досмотр, чем «развлекательный шум без структуры».
+Short videos with a **clear expert thesis** outperform noisy entertainment with no structure.
 
-## Что изменилось
+## What changed
 
-- 🧠 Аудитория быстрее распознает полезность контента.
-- ⏱️ 20-40 секунд хватает, чтобы дать один сильный аргумент.
-- 📱 Вертикальный формат усиливает эффект «личного обращения».
+- 🧠 Audiences recognize useful content faster.
+- ⏱️ 20-40 seconds is enough for one strong argument.
+- 📱 Vertical framing increases the "direct message" effect.
 
-## Практический шаблон
+## Practical template
 
-1. **Хук**: «За 30 секунд покажу, где вы теряете просмотры».
-2. **Факт**: один конкретный пример или метрика.
-3. **Вывод**: что зритель должен сделать сразу после просмотра.
+1. **Hook**: "In 30 seconds I'll show where you're losing views."
+2. **Fact**: one concrete example or metric.
+3. **Conclusion**: what viewers should do immediately after watching.
 
-> Важный принцип: одна мысль на один ролик.
+> Core rule: one idea per clip.
 
-## Чеклист перед публикацией
+## Pre-publish checklist
 
-- [x] Первый смысловой удар в первые 2 секунды.
-- [x] Один CTA в конце.
-- [x] Плотный ритм без длинных пауз.
+- [x] First semantic punch within 2 seconds.
+- [x] Single CTA at the end.
+- [x] Dense pacing with no long pauses.
 
-\`Монтажный ориентир\`: если фраза не усиливает тезис, её лучше вырезать.
+\`Editing heuristic\`: if a phrase does not reinforce the thesis, cut it.
 `.trim(),
   },
   {
     id: "n_02",
-    label: "Совет",
-    title: "Фиксируйте ключевые слова до генерации клипов, чтобы усилить релевантность.",
-    timestamp: "Сегодня",
+    label: "Tip",
+    title: "Define key terms before clip generation to improve relevance.",
+    timestamp: "Today",
     coverEmoji: "📝",
-    author: "Редакция Cursed Clipper",
-    summary: "Словарь ключевых слов до старта пайплайна заметно повышает точность итоговых клипов.",
+    author: "Cursed Clipper Editorial",
+    summary: "A key-term vocabulary before pipeline start significantly increases clip precision.",
     contentMarkdown: `
-# 📝 Ключевые слова: фиксируйте до генерации
+# 📝 Key terms: define them before generation
 
-Если заранее определить **смысловые якоря**, система точнее выбирает фрагменты для клипов.
+If you define **semantic anchors** in advance, the system picks more relevant segments.
 
-## Минимальный набор
+## Minimum set
 
-- Названия продукта/темы
-- Ключевые боли аудитории
-- Формулировки оффера
+- Product/topic terms
+- Core audience pains
+- Offer formulations
 
-## Как записывать
+## How to write them
 
-Используйте короткий список в виде Markdown:
+Use a short Markdown list:
 
 \`\`\`md
-- проблема: низкий досмотр
-- триггер: потеря внимания в первые 3 секунды
-- оффер: готовый шаблон монтажа
+- problem: low completion rate
+- trigger: attention drop in first 3 seconds
+- offer: ready-made editing template
 \`\`\`
 
-## Что вы получаете
+## What you get
 
-- 🎯 Меньше «общих» нарезок
-- ⚡ Быстрее отбор клипов
-- 📊 Более чистая аналитика по сегментам
+- 🎯 Fewer generic clips
+- ⚡ Faster clip selection
+- 📊 Cleaner segment-level analytics
 `.trim(),
   },
   {
     id: "n_03",
-    label: "Инсайт",
-    title: "Лучше всего работают клипы длиной 22-38 секунд с четким обещанием в начале.",
-    timestamp: "Вчера",
+    label: "Insight",
+    title: "Clips in the 22-38s range perform best with a clear opening promise.",
+    timestamp: "Yesterday",
     coverEmoji: "💡",
     author: "Growth Lab",
-    summary: "Диапазон 22-38 секунд остается наиболее стабильным по удержанию в экспертном контенте.",
+    summary: "The 22-38s range remains the most stable for retention in expert content.",
     contentMarkdown: `
-# 💡 Диапазон 22-38 секунд по-прежнему лучший
+# 💡 22-38 seconds is still the best range
 
-По серии тестов этот интервал дает лучший баланс между **удержанием** и **смысловой плотностью**.
+Across tests, this interval provides the best balance of **retention** and **semantic density**.
 
-## Рекомендуемая структура
+## Suggested structure
 
-- 0-3 сек: обещание результата
-- 4-24 сек: главная мысль + мини-доказательство
-- 25-38 сек: завершение + CTA
+- 0-3s: outcome promise
+- 4-24s: core point + mini-proof
+- 25-38s: wrap-up + CTA
 
-## Когда можно выходить за диапазон
+## When to go longer
 
-- Для кейсов с цифрами и сравнением «до/после»
-- Для плотных объясняющих форматов
+- For data-heavy case studies and before/after comparisons
+- For dense explanatory formats
 
-Если клип длиннее 40 секунд, проверьте, нет ли повторов в середине.
+If a clip is longer than 40s, check for repetitions in the middle.
 `.trim(),
   },
 ]
@@ -153,78 +153,78 @@ export const newsFeed: NewsItem[] = [
 export const updatesFeed: NewsItem[] = [
   {
     id: "u_01",
-    label: "Релиз",
-    title: "Семантический таймлайн теперь учитывает доверие к смысловым блокам.",
-    timestamp: "Сегодня",
+    label: "Release",
+    title: "Semantic timeline now accounts for confidence in semantic blocks.",
+    timestamp: "Today",
     coverEmoji: "🚀",
     author: "Product Team",
-    summary: "Обновили ранжирование блоков: система лучше различает сильные и слабые сегменты речи.",
+    summary: "Block ranking was updated: the system now better distinguishes strong and weak segments.",
     contentMarkdown: `
-# 🚀 Релиз: доверие к смысловым блокам
+# 🚀 Release: semantic block confidence
 
-Мы обновили модель ранжирования в таймлайне: теперь каждый блок получает вес не только по позиции, но и по **качеству смыслового сигнала**.
+Timeline ranking now weighs each block not only by position, but also by **semantic signal quality**.
 
-## Что стало лучше
+## Improvements
 
-- Более точный выбор сильных хуков
-- Меньше ложных срабатываний на «пустых» фразах
-- Стабильнее рекомендации для экспорта
+- More accurate strong-hook selection
+- Fewer false positives on empty phrases
+- More stable export recommendations
 
-## Визуально в продукте
+## Product-level changes
 
-- Блоки с высоким доверием выделяются заметнее
-- В «Аналитике» лучше читается распределение по типам
+- High-confidence blocks are visually clearer
+- Type distribution is easier to read in Analytics
 `.trim(),
   },
   {
     id: "u_02",
-    label: "Система",
-    title: "Генератор обложек получил быстрые шаблоны под TikTok и Shorts.",
-    timestamp: "Сегодня",
+    label: "System",
+    title: "Cover generator now includes quick templates for TikTok and Shorts.",
+    timestamp: "Today",
     coverEmoji: "🎨",
     author: "Design Systems",
-    summary: "Добавлены быстрые шаблоны, которые ускоряют подготовку обложек под вертикальные платформы.",
+    summary: "Quick templates were added to speed up cover preparation for vertical platforms.",
     contentMarkdown: `
-# 🎨 Быстрые шаблоны обложек
+# 🎨 Quick cover templates
 
-Теперь можно быстрее собирать обложки под **TikTok** и **Shorts** без ручного старта с нуля.
+You can now create covers for **TikTok** and **Shorts** much faster without starting from scratch.
 
-## В шаблонах уже есть
+## Included in templates
 
-- Контрастные безопасные зоны
-- Базовые композиции для заголовка
-- Цветовые пары под тёмные и светлые кадры
+- Contrast-safe zones
+- Base title compositions
+- Color pairs for dark and light footage
 
-## Рекомендация
+## Recommendation
 
-Используйте короткий заголовок:
+Use a short title:
 
-> 3-6 слов, один глагол действия, без перегруза.
+> 3-6 words, one action verb, no overload.
 `.trim(),
   },
   {
     id: "u_03",
-    label: "Интерфейс",
-    title: "Новый режим рабочего пространства сокращает визуальный шум при монтаже.",
-    timestamp: "2 дня назад",
+    label: "Interface",
+    title: "New workspace mode reduces visual noise during editing.",
+    timestamp: "2 days ago",
     coverEmoji: "🧩",
     author: "UX Team",
-    summary: "Упростили структуру рабочего пространства: меньше отвлекающих элементов, быстрее доступ к ключевым действиям.",
+    summary: "Workspace structure was simplified: fewer distractions and faster access to key actions.",
     contentMarkdown: `
-# 🧩 Интерфейс: меньше шума, больше фокуса
+# 🧩 Interface: less noise, more focus
 
-Мы пересобрали приоритеты в рабочем пространстве, чтобы монтаж ощущался быстрее.
+We rebuilt workspace priorities to make editing feel faster.
 
-## Изменения
+## Changes
 
-- Панели с второстепенной информацией стали спокойнее
-- Основные действия вынесены в верхний уровень
-- Улучшена читаемость статусов проекта
+- Secondary panels are less noisy
+- Primary actions moved to top level
+- Project status readability improved
 
-## Зачем это нужно
+## Why this matters
 
-В длинных сессиях пользователь быстрее устает от «визуального шума».  
-Новая структура удерживает внимание на текущем шаге.
+In long sessions, visual noise causes faster fatigue.  
+The new structure keeps focus on the current step.
 `.trim(),
   },
 ]
@@ -236,7 +236,7 @@ export const createProjectDraft = (
   id: `p_${Math.random().toString(36).slice(2, 9)}`,
   name,
   description,
-  updatedAt: "только что",
+  updatedAt: "just now",
   clips: 0,
   durationSeconds: 0,
   status: "draft",
@@ -256,14 +256,14 @@ export const formatDurationLabel = (seconds: number): string => {
   const secs = bounded % 60
   if (hours > 0) {
     if (mins > 0) {
-      return `${hours} ч ${mins} мин`
+      return `${hours}h ${mins}m`
     }
-    return `${hours} ч ${secs} с`
+    return `${hours}h ${secs}s`
   }
   if (mins > 0) {
-    return secs > 0 ? `${mins} мин ${secs} с` : `${mins} мин`
+    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`
   }
-  return `${secs} с`
+  return `${secs}s`
 }
 
 export const makeMockTranscript = (duration: number): TranscriptWord[] => {

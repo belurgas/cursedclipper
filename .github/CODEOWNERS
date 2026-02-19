@@ -1,0 +1,14 @@
+# Default owners for all files
+* @belurgas
+
+# Frontend
+/src/ @belurgas
+
+# Desktop backend / Tauri
+/src-tauri/ @belurgas
+
+# CI / repo policy
+/.github/ @belurgas
+/CONTRIBUTING.md @belurgas
+/TRADEMARK_POLICY.md @belurgas
+/LICENSE @belurgas

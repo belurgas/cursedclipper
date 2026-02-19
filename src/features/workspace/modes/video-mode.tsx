@@ -1,5 +1,6 @@
 import { useState, type RefObject } from "react"
 import { MessageSquareTextIcon, ScissorsIcon, UploadIcon } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { formatSeconds } from "@/app/mock-data"
 import { Button } from "@/components/ui/button"
@@ -46,20 +47,26 @@ export default function VideoMode({
   videoRef,
   onOpenFilePicker,
 }: VideoModeProps) {
-  const { media, transcript, clips, semanticBlocks, actions } = controller
-  const [inspectorTab, setInspectorTab] = useState<"transcript" | "timecodes">("transcript")
+  const { t } = useTranslation()
+  const { media, transcript, clips, semanticBlocks, actions, ai } = controller
+  const [inspectorTab, setInspectorTab] = useState<"video" | "transcript" | "timecodes">("video")
   const [narrowPane, setNarrowPane] = useState<"canvas" | "inspector">("canvas")
   const [timecodeStart, setTimecodeStart] = useState("")
   const [timecodeEnd, setTimecodeEnd] = useState("")
   const [timecodeError, setTimecodeError] = useState("")
-  const selectedStart = transcript.selection
-    ? transcript.words[transcript.selection.start]?.start ?? 0
-    : 0
-  const selectedEnd = transcript.selection
-    ? transcript.words[transcript.selection.end]?.end ?? 0
-    : 0
+  const hasTranscriptData = transcript.words.length > 0
+  const detectedAspect =
+    media.videoWidth > 0 && media.videoHeight > 0
+      ? media.videoWidth > media.videoHeight
+        ? "16:9"
+        : media.videoWidth < media.videoHeight
+          ? "9:16"
+          : "1:1"
+      : t("workspace.videoMode.aspectUnknown")
+  const selectedStart = transcript.derivedTimeSelection?.start ?? 0
+  const selectedEnd = transcript.derivedTimeSelection?.end ?? 0
   const selectedDuration = Math.max(0, selectedEnd - selectedStart)
-  const hasSelection = Boolean(transcript.selection && selectedDuration >= 0.15)
+  const hasSelection = Boolean(transcript.derivedTimeSelection && selectedDuration >= 0.15)
 
   const seekTo = (time: number) => {
     const player = videoRef.current
@@ -89,8 +96,10 @@ export default function VideoMode({
             {formatSeconds(media.currentTime)} / {formatSeconds(media.duration)}
           </p>
         </div>
-        {transcript.isTranscribing ? (
-          <ShinyText text="ИИ формирует смысловые блоки..." speed={2.4} className="text-xs" />
+        {ai.isAnalyzingVideo ? (
+          <ShinyText text={t("workspace.videoMode.statusAnalyzingVideo")} speed={2.3} className="text-xs" />
+        ) : transcript.isTranscribing ? (
+          <ShinyText text={t("workspace.videoMode.statusBuildingSemantics")} speed={2.4} className="text-xs" />
         ) : null}
       </div>
 
@@ -120,12 +129,15 @@ export default function VideoMode({
         <div className="min-w-0">
           {hasSelection ? (
             <p className="truncate text-xs text-zinc-300">
-              {formatSeconds(selectedStart)} - {formatSeconds(selectedEnd)} · Длительность:{" "}
-              {selectedDuration.toFixed(1)} с
+              {t("workspace.videoMode.selectionDuration", {
+                start: formatSeconds(selectedStart),
+                end: formatSeconds(selectedEnd),
+                duration: selectedDuration.toFixed(1),
+              })}
             </p>
           ) : (
             <p className="truncate text-xs text-zinc-500">
-              Выделите слова в расшифровке или диапазон на таймлайне.
+              {t("workspace.videoMode.selectionHint")}
             </p>
           )}
         </div>
@@ -137,16 +149,16 @@ export default function VideoMode({
             onClick={actions.createClipFromSelection}
           >
             <ScissorsIcon className="size-3.5" />
-            В клип
+            {t("workspace.videoMode.createClip")}
           </Button>
           <Button
             size="xs"
             variant="outline"
             className="border-white/12 bg-transparent text-zinc-300 hover:bg-white/8"
-            disabled={!transcript.selection}
+            disabled={!transcript.derivedTimeSelection}
             onClick={actions.clearSelection}
           >
-            Сброс
+            {t("workspace.videoMode.reset")}
           </Button>
         </div>
       </div>
@@ -154,10 +166,84 @@ export default function VideoMode({
     </div>
   )
 
+  const renderVideoOverview = () => (
+    <div className="h-full overflow-auto p-3">
+      <div className="rounded-lg border border-white/10 bg-black/25 p-3">
+        <p className="text-xs tracking-[0.14em] text-zinc-500 uppercase">{t("workspace.videoMode.aboutVideoTitle")}</p>
+        <p className="mt-1 text-xs text-zinc-400">
+          {t("workspace.videoMode.aboutVideoDescription")}
+        </p>
+      </div>
+
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <div className="rounded-md border border-white/10 bg-white/4 px-3 py-2">
+          <p className="text-[11px] text-zinc-500">{t("workspace.videoMode.durationLabel")}</p>
+          <p className="mt-1 text-xs text-zinc-300">{formatSeconds(media.duration)}</p>
+        </div>
+        <div className="rounded-md border border-white/10 bg-white/4 px-3 py-2">
+          <p className="text-[11px] text-zinc-500">{t("workspace.videoMode.frameLabel")}</p>
+          <p className="mt-1 text-xs text-zinc-300">
+            {media.videoWidth > 0 && media.videoHeight > 0
+              ? `${media.videoWidth}x${media.videoHeight} · ${detectedAspect}`
+              : t("workspace.videoMode.waitingMetadata")}
+          </p>
+        </div>
+      </div>
+
+      {ai.isAnalyzingVideo ? (
+        <div className="mt-2 rounded-md border border-white/10 bg-white/4 px-3 py-2">
+          <ShinyText text={t("workspace.videoMode.statusFinalizingAnalysis")} speed={2.1} className="text-xs" />
+        </div>
+      ) : ai.videoAnalysis ? (
+        <div className="mt-2 space-y-2">
+          <div className="rounded-md border border-white/10 bg-white/4 px-3 py-2">
+            <p className="text-xs text-zinc-200">{ai.videoAnalysis.summary}</p>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {ai.videoAnalysis.metrics.map((metric) => (
+              <div key={metric.id} className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+                <p className="text-[11px] text-zinc-500">{metric.label}</p>
+                <p className="mt-0.5 text-xs text-zinc-200">{metric.value}</p>
+                <p className="mt-1 text-[11px] text-zinc-500">{metric.detail}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-[11px] tracking-[0.13em] text-zinc-500 uppercase">{t("workspace.videoMode.keySignals")}</p>
+            <div className="mt-1 space-y-1">
+              {ai.videoAnalysis.highlights.map((item, index) => (
+                <p key={`${item}-${index}`} className="text-xs text-zinc-300">
+                  {item}
+                </p>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-2 rounded-md border border-white/10 bg-white/4 px-3 py-2">
+          <p className="text-xs text-zinc-500">{t("workspace.videoMode.analysisAfterMetadata")}</p>
+        </div>
+      )}
+    </div>
+  )
+
   const renderInspector = () => (
     <section className="min-h-0">
       <div className="flex h-full min-h-0 flex-col rounded-xl border border-white/12 bg-black/26">
         <div className="flex items-center gap-2 border-b border-white/10 p-2">
+          <button
+            onClick={() => setInspectorTab("video")}
+            className={[
+              "rounded-md px-2.5 py-1.5 text-xs transition",
+              inspectorTab === "video"
+                ? "bg-zinc-100/12 text-zinc-100"
+                : "text-zinc-400 hover:bg-white/8 hover:text-zinc-200",
+            ].join(" ")}
+          >
+            {t("workspace.videoMode.tabVideo")}
+          </button>
           <button
             onClick={() => setInspectorTab("transcript")}
             className={[
@@ -167,7 +253,7 @@ export default function VideoMode({
                 : "text-zinc-400 hover:bg-white/8 hover:text-zinc-200",
             ].join(" ")}
           >
-            Расшифровка
+            {t("workspace.videoMode.tabTranscript")}
           </button>
           <button
             onClick={() => setInspectorTab("timecodes")}
@@ -178,12 +264,32 @@ export default function VideoMode({
                 : "text-zinc-400 hover:bg-white/8 hover:text-zinc-200",
             ].join(" ")}
           >
-            Таймкоды
+            {t("workspace.videoMode.tabTimecodes")}
           </button>
         </div>
 
         <div className="min-h-0 flex-1">
-          {inspectorTab === "transcript" ? (
+          {inspectorTab === "video" ? (
+            renderVideoOverview()
+          ) : inspectorTab === "transcript" ? (
+            !transcript.isTranscribing && !hasTranscriptData ? (
+              <div className="grid h-full place-content-center gap-2 px-4 text-center">
+                <p className="text-sm text-zinc-200">{t("workspace.videoMode.transcriptNotStartedTitle")}</p>
+                <p className="max-w-sm text-xs text-zinc-500">
+                  {t("workspace.videoMode.transcriptNotStartedDescription")}
+                </p>
+                <div className="flex justify-center">
+                  <Button
+                    size="sm"
+                    className="bg-zinc-100 text-zinc-950 hover:bg-zinc-100/90"
+                    onClick={actions.startTranscription}
+                    disabled={!media.videoUrl}
+                  >
+                    {t("workspace.videoMode.startTranscription")}
+                  </Button>
+                </div>
+              </div>
+            ) : (
             <SemanticBlockTranscript
               blocks={transcript.visibleTranscriptBlocks}
               words={transcript.words}
@@ -204,14 +310,15 @@ export default function VideoMode({
                 actions.setCurrentTime(time)
               }}
             />
+            )
           ) : inspectorTab === "timecodes" ? (
             <div className="h-full overflow-auto p-3">
               <div className="rounded-lg border border-white/10 bg-black/25 p-3">
                 <p className="text-xs tracking-[0.14em] text-zinc-500 uppercase">
-                  Клиппинг по таймкодам
+                  {t("workspace.videoMode.timecodeClippingTitle")}
                 </p>
                 <p className="mt-1 text-xs text-zinc-400">
-                  Укажите старт и конец диапазона, затем создайте клип.
+                  {t("workspace.videoMode.timecodeClippingDescription")}
                 </p>
               </div>
 
@@ -225,7 +332,7 @@ export default function VideoMode({
                     setTimecodeError("")
                   }}
                 >
-                  Старт = текущее время
+                  {t("workspace.videoMode.setStartToCurrent")}
                 </Button>
                 <Button
                   size="xs"
@@ -236,57 +343,57 @@ export default function VideoMode({
                     setTimecodeError("")
                   }}
                 >
-                  Конец = текущее время
+                  {t("workspace.videoMode.setEndToCurrent")}
                 </Button>
               </div>
 
-              {transcript.selection ? (
+              {transcript.derivedTimeSelection ? (
                 <Button
                   size="xs"
                   variant="outline"
                   className="mt-2 border-white/15 bg-transparent text-zinc-300 hover:bg-white/8"
                   onClick={() => {
-                    const start = transcript.words[transcript.selection?.start ?? 0]?.start ?? 0
-                    const end = transcript.words[transcript.selection?.end ?? 0]?.end ?? start
+                    const start = transcript.derivedTimeSelection?.start ?? 0
+                    const end = transcript.derivedTimeSelection?.end ?? start
                     setTimecodeStart(formatSeconds(start))
                     setTimecodeEnd(formatSeconds(end))
                     setTimecodeError("")
                   }}
                 >
-                  Подставить текущее выделение
+                  {t("workspace.videoMode.fillFromSelection")}
                 </Button>
               ) : null}
 
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <p className="text-[11px] text-zinc-500">Начало</p>
+                  <p className="text-[11px] text-zinc-500">{t("workspace.videoMode.startLabel")}</p>
                   <Input
                     value={timecodeStart}
                     onChange={(event) => {
                       setTimecodeStart(event.target.value)
                       setTimecodeError("")
                     }}
-                    placeholder="00:12"
+                    placeholder={t("workspace.videoMode.timecodePlaceholderStart")}
                     className="border-white/12 bg-black/22"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <p className="text-[11px] text-zinc-500">Конец</p>
+                  <p className="text-[11px] text-zinc-500">{t("workspace.videoMode.endLabel")}</p>
                   <Input
                     value={timecodeEnd}
                     onChange={(event) => {
                       setTimecodeEnd(event.target.value)
                       setTimecodeError("")
                     }}
-                    placeholder="00:38"
+                    placeholder={t("workspace.videoMode.timecodePlaceholderEnd")}
                     className="border-white/12 bg-black/22"
                   />
                 </div>
               </div>
 
               <div className="mt-2 rounded-md border border-white/10 bg-white/4 px-3 py-2">
-                <p className="text-[11px] text-zinc-500">Предпросмотр диапазона</p>
+                <p className="text-[11px] text-zinc-500">{t("workspace.videoMode.rangePreview")}</p>
                 <p className="mt-1 text-xs text-zinc-300">
                   {timecodeStart || "--:--"} - {timecodeEnd || "--:--"}
                 </p>
@@ -303,16 +410,16 @@ export default function VideoMode({
                   const start = parseTimecode(timecodeStart)
                   const end = parseTimecode(timecodeEnd)
                   if (start === null || end === null) {
-                    setTimecodeError("Некорректный формат таймкода.")
+                    setTimecodeError(t("workspace.videoMode.timecodeFormatError"))
                     return
                   }
                   if (Math.abs(end - start) < 0.35) {
-                    setTimecodeError("Диапазон слишком короткий для клипа.")
+                    setTimecodeError(t("workspace.videoMode.rangeTooShortError"))
                     return
                   }
                   const clipId = actions.createClipFromTimeRange(start, end)
                   if (!clipId) {
-                    setTimecodeError("Не удалось создать клип из этого диапазона.")
+                    setTimecodeError(t("workspace.videoMode.createClipFromRangeError"))
                     return
                   }
                   const seek = Math.min(start, end)
@@ -320,7 +427,7 @@ export default function VideoMode({
                   setTimecodeError("")
                 }}
               >
-                Создать клип из таймкодов
+                {t("workspace.videoMode.createClipFromTimecodes")}
               </Button>
             </div>
           ) : null}
@@ -342,7 +449,7 @@ export default function VideoMode({
             ].join(" ")}
             onClick={() => setNarrowPane("canvas")}
           >
-            Плеер и таймлайн
+            {t("workspace.videoMode.panePlayerTimeline")}
           </button>
           <button
             className={[
@@ -353,7 +460,7 @@ export default function VideoMode({
             ].join(" ")}
             onClick={() => setNarrowPane("inspector")}
           >
-            Расшифровка и таймкоды
+            {t("workspace.videoMode.paneInspector")}
           </button>
         </div>
 
@@ -373,13 +480,13 @@ export default function VideoMode({
       className="grid h-full min-h-[420px] place-content-center gap-3 rounded-xl border border-dashed border-white/18 bg-black/24 text-zinc-300 transition hover:border-white/28 hover:bg-white/4"
     >
       <UploadIcon className="mx-auto size-7 text-zinc-400" />
-      <span className="text-sm">Загрузите исходное видео</span>
+      <span className="text-sm">{t("workspace.videoMode.uploadSourceVideo")}</span>
       <span className="max-w-sm text-center text-xs text-zinc-500">
-        После загрузки ИИ автоматически запустит расшифровку и построит семантические блоки.
+        {t("workspace.videoMode.uploadSourceVideoHint")}
       </span>
       <span className="inline-flex items-center justify-center gap-1 text-[11px] text-zinc-500">
         <MessageSquareTextIcon className="size-3.5" />
-        Текст и таймлайн работают в едином режиме.
+        {t("workspace.videoMode.subtitlesOnlyInAssembly")}
       </span>
     </button>
   )

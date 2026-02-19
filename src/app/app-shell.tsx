@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AnimatePresence } from "framer-motion"
+import { useTranslation } from "react-i18next"
 
 import type { NewsItem, Project } from "@/app/types"
 import { AppChrome, type AppNotificationItem } from "@/app/app-chrome"
@@ -17,6 +17,13 @@ import {
   type RuntimeToolsStatus,
   updateProjectViaBackend,
 } from "@/shared/tauri/backend"
+import i18n from "@/shared/i18n/i18n"
+import {
+  hasStoredUiLanguage,
+  normalizeUiLanguage,
+  resolveIntlLocale,
+  setStoredUiLanguage,
+} from "@/shared/i18n/language"
 import { useAppToast } from "@/shared/ui/app-toast-provider"
 
 type NotificationTarget =
@@ -36,8 +43,8 @@ type AppNotification = AppNotificationItem & {
 
 const MAX_NOTIFICATIONS = 42
 
-const formatNotificationTime = (date: Date) =>
-  new Intl.DateTimeFormat("ru-RU", {
+const formatNotificationTime = (date: Date, locale: string) =>
+  new Intl.DateTimeFormat(locale, {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
@@ -75,6 +82,8 @@ const canOpenProjectWorkspace = (project: Project) => {
 }
 
 export function AppShell() {
+  const { t, i18n: i18nState } = useTranslation()
+  const appLocale = resolveIntlLocale(normalizeUiLanguage(i18nState.language))
   const [isBooting, setIsBooting] = useState(true)
   const [projects, setProjects] = useState<Project[]>([])
   const [newsFeed, setNewsFeed] = useState<NewsItem[]>([])
@@ -102,6 +111,7 @@ export function AppShell() {
       }
     >
   >({})
+  const taskProgressDispatchAtRef = useRef<Record<string, number>>({})
   const { pushToast, updateToast } = useAppToast()
 
   const appendNotification = useCallback(
@@ -118,12 +128,12 @@ export function AppShell() {
         tone: payload.tone,
         target: payload.target,
         createdAt: now.getTime(),
-        timestamp: formatNotificationTime(now),
+        timestamp: formatNotificationTime(now, appLocale),
         unread: true,
       }
       setNotifications((previous) => [notification, ...previous].slice(0, MAX_NOTIFICATIONS))
     },
-    [],
+    [appLocale],
   )
 
   const upsertTaskNotification = useCallback(
@@ -143,7 +153,7 @@ export function AppShell() {
                     ...item,
                     ...payload,
                     createdAt: now.getTime(),
-                    timestamp: formatNotificationTime(now),
+                    timestamp: formatNotificationTime(now, appLocale),
                     unread: true,
                   }
                 : item,
@@ -160,13 +170,13 @@ export function AppShell() {
           tone: payload.tone,
           target: payload.target,
           createdAt: now.getTime(),
-          timestamp: formatNotificationTime(now),
+          timestamp: formatNotificationTime(now, appLocale),
           unread: true,
         }
         return [nextItem, ...previous].slice(0, MAX_NOTIFICATIONS)
       })
     },
-    [],
+    [appLocale],
   )
 
   const markAllNotificationsRead = useCallback(() => {
@@ -181,11 +191,11 @@ export function AppShell() {
       }
       if (!canOpenProjectWorkspace(project)) {
         pushToast({
-          title: "Источник еще не готов",
+          title: t("appShell.sourceNotReadyTitle"),
           description:
             project.sourceStatus === "pending"
-              ? "Дождитесь завершения импорта/загрузки видео."
-              : "Видео-источник проекта не найден. Проверьте импорт.",
+              ? t("appShell.sourceNotReadyPending")
+              : t("appShell.sourceNotReadyMissing"),
           tone: "info",
           durationMs: 3200,
         })
@@ -194,7 +204,7 @@ export function AppShell() {
       setWorkspaceModeRequest(requestedMode)
       setActiveProjectId(projectId)
     },
-    [projects, pushToast],
+    [projects, pushToast, t],
   )
 
   const openNotification = useCallback(
@@ -226,7 +236,9 @@ export function AppShell() {
     (projectId: string, patch: Partial<Project>) => {
       setProjects((previous) =>
         previous.map((project) =>
-          project.id === projectId ? { ...project, ...patch, updatedAt: "только что" } : project,
+          project.id === projectId
+            ? { ...project, ...patch, updatedAt: t("appShell.justNow") }
+            : project,
         ),
       )
 
@@ -244,12 +256,17 @@ export function AppShell() {
         sourceDurationSeconds: patch.sourceDurationSeconds,
         sourceThumbnail: patch.sourceThumbnail,
         sourceViewCount: patch.sourceViewCount,
+        sourceViewCountPrevious: patch.sourceViewCountPrevious,
         sourceLikeCount: patch.sourceLikeCount,
+        sourceLikeCountPrevious: patch.sourceLikeCountPrevious,
         sourceCommentCount: patch.sourceCommentCount,
+        sourceCommentCountPrevious: patch.sourceCommentCountPrevious,
         sourceUploadDate: patch.sourceUploadDate,
         sourceChannelId: patch.sourceChannelId,
         sourceChannelUrl: patch.sourceChannelUrl,
         sourceChannelFollowers: patch.sourceChannelFollowers,
+        sourceChannelFollowersPrevious: patch.sourceChannelFollowersPrevious,
+        sourceMetricsUpdatedAt: patch.sourceMetricsUpdatedAt,
         importedMediaPath: patch.importedMediaPath,
         updatedAt: patch.updatedAt,
       })
@@ -260,17 +277,19 @@ export function AppShell() {
         })
         .catch((error) => {
           console.error("Failed to persist project patch:", error)
+          pushToast({
+            title: t("appShell.patchNotSavedTitle"),
+            description:
+              error instanceof Error && error.message.trim()
+                ? error.message
+                : t("appShell.patchNotSavedDescription"),
+            tone: "error",
+            durationMs: 3600,
+          })
         })
     },
-    [],
+    [pushToast, t],
   )
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setIsBooting(false)
-    }, 2400)
-    return () => window.clearTimeout(timer)
-  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -278,43 +297,60 @@ export function AppShell() {
     void Promise.all([
       fetchDashboardData(),
       getRuntimeToolsStatus().catch(() => null),
-    ]).then(([payload, toolsStatus]) => {
-      if (cancelled) {
-        return
-      }
-      setProjects(payload.projects)
-      setNewsFeed(payload.newsFeed)
-      setUpdatesFeed(payload.updatesFeed)
-      setRuntimeStatus(toolsStatus)
-      setNotifications((previous) => {
-        if (previous.length > 0) {
-          return previous
+    ])
+      .then(([payload, toolsStatus]) => {
+        if (cancelled) {
+          return
         }
-        const seeded: AppNotification[] = [
-          ...payload.updatesFeed.slice(0, 2).map((item) => ({
-            id: `seed-update-${item.id}`,
-            title: item.label,
-            description: item.title,
-            tone: "info" as const,
-            createdAt: Date.now(),
-            timestamp: item.timestamp,
-            unread: false,
-            target: { kind: "section", section: "updates" } as NotificationTarget,
-          })),
-          ...payload.newsFeed.slice(0, 2).map((item) => ({
-            id: `seed-news-${item.id}`,
-            title: item.label,
-            description: item.title,
-            tone: "info" as const,
-            createdAt: Date.now(),
-            timestamp: item.timestamp,
-            unread: false,
-            target: { kind: "section", section: "news" } as NotificationTarget,
-          })),
-        ]
-        return seeded
+        if (toolsStatus?.settings?.uiLanguage && !hasStoredUiLanguage()) {
+          const normalizedLanguage = normalizeUiLanguage(toolsStatus.settings.uiLanguage)
+          setStoredUiLanguage(normalizedLanguage)
+          if (normalizeUiLanguage(i18n.language) !== normalizedLanguage) {
+            void i18n.changeLanguage(normalizedLanguage)
+          }
+        }
+
+        setProjects(payload.projects)
+        setNewsFeed(payload.newsFeed)
+        setUpdatesFeed(payload.updatesFeed)
+        setRuntimeStatus(toolsStatus)
+        setNotifications((previous) => {
+          if (previous.length > 0) {
+            return previous
+          }
+          const seeded: AppNotification[] = [
+            ...payload.updatesFeed.slice(0, 2).map((item) => ({
+              id: `seed-update-${item.id}`,
+              title: item.label,
+              description: item.title,
+              tone: "info" as const,
+              createdAt: Date.now(),
+              timestamp: item.timestamp,
+              unread: false,
+              target: { kind: "section", section: "updates" } as NotificationTarget,
+            })),
+            ...payload.newsFeed.slice(0, 2).map((item) => ({
+              id: `seed-news-${item.id}`,
+              title: item.label,
+              description: item.title,
+              tone: "info" as const,
+              createdAt: Date.now(),
+              timestamp: item.timestamp,
+              unread: false,
+              target: { kind: "section", section: "news" } as NotificationTarget,
+            })),
+          ]
+          return seeded
+        })
       })
-    })
+      .catch((error) => {
+        console.error("Failed to bootstrap app shell:", error)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsBooting(false)
+        }
+      })
 
     return () => {
       cancelled = true
@@ -367,6 +403,16 @@ export function AppShell() {
     }
 
     const handleProgress = (event: RuntimeInstallProgressEvent) => {
+      const now = performance.now()
+      const lastDispatchAt = taskProgressDispatchAtRef.current[event.task] ?? 0
+      if (
+        event.status === "progress" &&
+        now - lastDispatchAt < 110
+      ) {
+        return
+      }
+      taskProgressDispatchAtRef.current[event.task] = now
+
       const toastId = installToastIdsRef.current[event.task]
       const isFinal = event.status === "success" || event.status === "error"
       const rawProgress = typeof event.progress === "number" ? event.progress : null
@@ -383,12 +429,12 @@ export function AppShell() {
       const title =
         event.title ??
         (event.task.startsWith("youtube-download")
-          ? "Импорт YouTube"
+          ? t("appShell.taskYoutubeImport")
           : event.task === "ffmpeg"
-            ? "Установка FFmpeg"
+            ? t("appShell.taskFfmpegInstall")
             : event.task === "ytdlp"
-              ? "Установка yt-dlp"
-              : "Фоновая задача")
+              ? t("appShell.taskYtdlpInstall")
+              : t("appShell.taskBackground"))
       const description = detail ? `${event.message} • ${detail}` : event.message
       const target = resolveNotificationTarget(event.task, event.status)
       const youtubeProjectId = event.task.match(/^youtube-download:(.+)$/)?.[1] ?? null
@@ -489,6 +535,7 @@ export function AppShell() {
         window.setTimeout(() => {
           delete installTaskProgressRef.current[event.task]
           delete taskLatestRef.current[event.task]
+          delete taskProgressDispatchAtRef.current[event.task]
           if (toastIdForCleanup && installToastIdsRef.current[event.task] === toastIdForCleanup) {
             delete installToastIdsRef.current[event.task]
           }
@@ -510,9 +557,12 @@ export function AppShell() {
         unlisten()
       }
     }
-  }, [pushToast, updateProject, updateToast, upsertTaskNotification])
+  }, [pushToast, t, updateProject, updateToast, upsertTaskNotification])
 
   const deleteProject = useCallback((projectId: string) => {
+    const previousProjects = projects
+    const removedProject = previousProjects.find((project) => project.id === projectId) ?? null
+
     setProjects((previous) => previous.filter((project) => project.id !== projectId))
     if (activeProjectId === projectId) {
       setActiveProjectId(null)
@@ -520,16 +570,34 @@ export function AppShell() {
     }
 
     appendNotification({
-      title: "Проект удален",
-      description: "Проект и связанные состояния удалены из рабочей области.",
+      title: t("appShell.projectDeletedTitle"),
+      description: t("appShell.projectDeletedDescription"),
       tone: "info",
       target: { kind: "section", section: "projects" },
     })
 
     void deleteProjectViaBackend(projectId).catch((error) => {
       console.error("Failed to delete project:", error)
+      setProjects(previousProjects)
+      pushToast({
+        title: t("appShell.deleteFailedTitle"),
+        description:
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : t("appShell.deleteFailedDescription"),
+        tone: "error",
+        durationMs: 3600,
+      })
+      if (removedProject) {
+        appendNotification({
+          title: t("appShell.deleteRolledBackTitle"),
+          description: t("appShell.deleteRolledBackDescription", { name: removedProject.name }),
+          tone: "info",
+          target: { kind: "section", section: "projects" },
+        })
+      }
     })
-  }, [activeProjectId, appendNotification])
+  }, [activeProjectId, appendNotification, projects, pushToast, t])
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) ?? null,
@@ -537,59 +605,58 @@ export function AppShell() {
   )
 
   return (
-    <div className="relative flex h-dvh flex-col overflow-hidden text-zinc-100">
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-[#05070a] text-zinc-100">
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-[#05070a]" />
       <AppChrome
         notifications={notifications}
         onOpenNotification={openNotification}
         onMarkAllRead={markAllNotificationsRead}
       />
       <div className="min-h-0 flex-1 overflow-hidden">
-        <AnimatePresence mode="wait">
-          {isBooting ? (
-            <LoadingScreen />
-          ) : activeProject ? (
-            <WorkspaceView
-              key={`workspace-${activeProject.id}-${workspaceModeRequest ?? "default"}`}
-              project={activeProject}
-              initialMode={workspaceModeRequest}
-              onProjectPatch={updateProject}
-              onBack={() => {
-                setActiveProjectId(null)
-                setWorkspaceModeRequest(null)
-              }}
-              onOpenSettings={() => {
-                setActiveProjectId(null)
-                setWorkspaceModeRequest(null)
-                setActiveDashboardSection("settings")
-              }}
-            />
-          ) : (
-            <DashboardView
-              key="dashboard-root"
-              projects={projects}
-              newsFeed={newsFeed}
-              updatesFeed={updatesFeed}
-              activeSection={activeDashboardSection}
-              onSectionChange={setActiveDashboardSection}
-              runtimeStatus={runtimeStatus}
-              onRuntimeStatusChange={setRuntimeStatus}
-              onCreateProject={(project) => {
-                setProjects((previous) => [{ ...project }, ...previous])
-                appendNotification({
-                  title: "Проект создан",
-                  description: `Новый проект «${project.name}» добавлен в рабочую область.`,
-                  tone: "success",
-                  target: { kind: "workspace", projectId: project.id, mode: "video" },
-                })
-              }}
-              onUpdateProject={updateProject}
-              onDeleteProject={deleteProject}
-              onOpenProject={(projectId) => {
-                tryOpenWorkspaceProject(projectId, null)
-              }}
-            />
-          )}
-        </AnimatePresence>
+        {isBooting ? (
+          <LoadingScreen />
+        ) : activeProject ? (
+          <WorkspaceView
+            key={`workspace-${activeProject.id}-${workspaceModeRequest ?? "default"}`}
+            project={activeProject}
+            initialMode={workspaceModeRequest}
+            onProjectPatch={updateProject}
+            onBack={() => {
+              setActiveProjectId(null)
+              setWorkspaceModeRequest(null)
+            }}
+            onOpenSettings={() => {
+              setActiveProjectId(null)
+              setWorkspaceModeRequest(null)
+              setActiveDashboardSection("settings")
+            }}
+          />
+        ) : (
+          <DashboardView
+            key="dashboard-root"
+            projects={projects}
+            newsFeed={newsFeed}
+            updatesFeed={updatesFeed}
+            activeSection={activeDashboardSection}
+            onSectionChange={setActiveDashboardSection}
+            runtimeStatus={runtimeStatus}
+            onRuntimeStatusChange={setRuntimeStatus}
+            onCreateProject={(project) => {
+              setProjects((previous) => [{ ...project }, ...previous])
+              appendNotification({
+                title: t("appShell.projectCreatedTitle"),
+                description: t("appShell.projectCreatedDescription", { name: project.name }),
+                tone: "success",
+                target: { kind: "workspace", projectId: project.id, mode: "video" },
+              })
+            }}
+            onUpdateProject={updateProject}
+            onDeleteProject={deleteProject}
+            onOpenProject={(projectId) => {
+              tryOpenWorkspaceProject(projectId, null)
+            }}
+          />
+        )}
       </div>
     </div>
   )

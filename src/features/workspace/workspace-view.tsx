@@ -4,8 +4,8 @@ import {
   ArrowLeftIcon,
   FolderOpenIcon,
   Settings2Icon,
-  SparklesIcon,
 } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import type { Project } from "@/app/types"
 import { Button } from "@/components/ui/button"
@@ -37,11 +37,15 @@ import {
   loadProjectWorkspaceState,
   openPathInFileManager,
   openProjectsRootDir,
+  pickLocalVideoFile,
+  probeYoutubeFormats,
   type ProjectResumeState,
   saveProjectResumeState,
   saveProjectWorkspaceState,
+  stageLocalVideoFile,
   type WorkspacePersistedState,
 } from "@/shared/tauri/backend"
+import { isTauriRuntime } from "@/shared/tauri/runtime"
 
 type WorkspaceViewProps = {
   project: Project
@@ -49,22 +53,6 @@ type WorkspaceViewProps = {
   onBack: () => void
   onOpenSettings: () => void
   onProjectPatch?: (projectId: string, patch: Partial<Project>) => void
-}
-
-const modeTitles: Record<WorkspaceMode, string> = {
-  video: "Редактор",
-  clips: "Сборка клипов",
-  export: "Экспорт",
-  insights: "Аналитика",
-  thumbnails: "Генератор обложек",
-}
-
-const modeDescriptions: Record<WorkspaceMode, string> = {
-  video: "Единое рабочее полотно: плеер, таймлайн и семантическая расшифровка.",
-  clips: "Детальная подготовка клипов к релизу и экспортным сценариям.",
-  export: "Точечная настройка заголовка, описания, тегов и платформ для каждого клипа.",
-  insights: "Виральный потенциал, хуки, контент-план и серия публикаций.",
-  thumbnails: "Живые шаблоны обложек с редактируемыми оверлеями.",
 }
 
 function isWorkspaceMode(value: string): value is WorkspaceMode {
@@ -80,6 +68,7 @@ function hasMeaningfulWorkspaceState(
   const hasTranscript = Array.isArray(state.transcript?.words) && state.transcript.words.length > 0
   const hasSemantic = Array.isArray(state.semanticBlocks) && state.semanticBlocks.length > 0
   const hasClips = Array.isArray(state.clips) && state.clips.length > 0
+  const hasVideoAnalysis = Boolean(state.ai?.videoAnalysis)
   const isStaleYoutubeSourceUrl =
     sourceType === "youtube" &&
     typeof sourceUrl === "string" &&
@@ -88,9 +77,40 @@ function hasMeaningfulWorkspaceState(
     restoredVideoUrl === sourceUrl
 
   if (isStaleYoutubeSourceUrl) {
-    return hasTranscript || hasSemantic || hasClips
+    return hasTranscript || hasSemantic || hasClips || hasVideoAnalysis
   }
-  return restoredVideoUrl.length > 0 || hasTranscript || hasSemantic || hasClips
+  if (hasTranscript || hasSemantic || hasClips || hasVideoAnalysis) {
+    return true
+  }
+  // A bare videoUrl without derived workspace data should not block re-bootstrap.
+  // Otherwise project opens with media but no transcript/clips and never restarts processing.
+  if (restoredVideoUrl.length > 0) {
+    return false
+  }
+  return false
+}
+
+function resolveErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  if (typeof error === "string" && error.trim()) {
+    return error
+  }
+  if (error && typeof error === "object" && "message" in error) {
+    const candidate = (error as { message?: unknown }).message
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate
+    }
+  }
+  return fallback
+}
+
+function normalizeOptionalMetric(value?: number | null): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined
+  }
+  return Math.max(0, Math.round(value))
 }
 
 export function WorkspaceView({
@@ -100,6 +120,7 @@ export function WorkspaceView({
   onOpenSettings,
   onProjectPatch,
 }: WorkspaceViewProps) {
+  const { t } = useTranslation()
   const controller = useWorkspaceController(project.id, project.name)
   const { pushToast } = useAppToast()
   const [activeMode, setActiveMode] = useState<WorkspaceMode>(initialMode ?? "video")
@@ -126,8 +147,53 @@ export function WorkspaceView({
   const persistErrorReportedAtRef = useRef(0)
   const flushPersistenceRef = useRef<(() => void) | null>(null)
   const lastProjectMetricsSnapshotRef = useRef("")
+  const youtubeMetricsRefreshKeyRef = useRef("")
 
-  const openFilePicker = () => fileInputRef.current?.click()
+  const openFilePicker = useCallback(() => {
+    if (isTauriRuntime()) {
+      void (async () => {
+        try {
+          const selectedPath = await pickLocalVideoFile()
+          if (!selectedPath) {
+            return
+          }
+          let resolvedPath = selectedPath
+          try {
+            resolvedPath = await stageLocalVideoFile(selectedPath, project.name)
+          } catch (stageError) {
+            pushToast({
+              title: t("workspaceView.usingOriginalFileTitle"),
+              description: resolveErrorMessage(
+                stageError,
+                t("workspaceView.usingOriginalFileDescription"),
+              ),
+              tone: "info",
+              durationMs: 3200,
+            })
+          }
+          setImportedVideoPath(resolvedPath)
+          setActiveMode("video")
+          onProjectPatch?.(project.id, {
+            sourceType: "local",
+            sourceLabel: resolvedPath.split(/[\\/]/).pop() || t("workspaceView.localFileFallback"),
+            sourceUrl: resolvedPath,
+            sourceStatus: "ready",
+            importedMediaPath: resolvedPath,
+          })
+        } catch (error) {
+          pushToast({
+            title: t("workspaceView.videoLoadFailedTitle"),
+            description: resolveErrorMessage(error, t("workspaceView.videoLoadFailedDescription")),
+            tone: "error",
+            durationMs: 3600,
+          })
+        }
+      })()
+      return
+    }
+    fileInputRef.current?.click()
+  }, [onProjectPatch, project.id, project.name, pushToast, setImportedVideoPath, t])
+
   const resolvedProjectSourceCandidate = useMemo(() => {
     const importedPath = project.importedMediaPath?.trim()
     if (importedPath) {
@@ -167,14 +233,14 @@ export function WorkspaceView({
         <div className="grid h-full min-h-[420px] place-content-center rounded-xl border border-white/10 bg-black/24 px-4 text-center">
           <div className="space-y-1.5">
             <ShinyText
-              text={hydrationResolved ? "Подключаем медиа проекта..." : "Восстанавливаем проект..."}
+              text={hydrationResolved ? t("workspaceView.connectingProjectMedia") : t("workspaceView.restoringProject")}
               speed={2.1}
               className="text-sm text-zinc-200"
             />
             <p className="text-xs text-zinc-500">
               {hydrationResolved
-                ? "Подтягиваем источник видео и синхронизируем рабочее состояние."
-                : "Загружаем видео, клипы и контекст из сохраненного состояния."}
+                ? t("workspaceView.connectingProjectMediaDescription")
+                : t("workspaceView.restoringProjectDescription")}
             </p>
           </div>
         </div>
@@ -184,14 +250,7 @@ export function WorkspaceView({
       return <VideoMode controller={controller} videoRef={videoRef} onOpenFilePicker={openFilePicker} />
     }
     if (activeMode === "clips") {
-      return (
-        <ClipsMode
-          controller={controller}
-          videoRef={videoRef}
-          onOpenCoverMode={() => handleModeChange("thumbnails")}
-          onOpenExportMode={() => handleModeChange("export")}
-        />
-      )
+      return <ClipsMode controller={controller} videoRef={videoRef} />
     }
     if (activeMode === "export") {
       return (
@@ -199,7 +258,7 @@ export function WorkspaceView({
           controller={controller}
           projectId={project.id}
           projectName={project.name}
-          sourcePath={project.importedMediaPath ?? null}
+          sourcePath={resolvedProjectSourceCandidate}
           onOpenCoverMode={() => handleModeChange("thumbnails")}
         />
       )
@@ -208,17 +267,27 @@ export function WorkspaceView({
       return <InsightsMode controller={controller} project={project} />
     }
     return <ThumbnailsMode controller={controller} />
-  }, [activeMode, controller, handleModeChange, hydrationResolved, isMediaBootstrapPending, project])
+  }, [
+    activeMode,
+    controller,
+    handleModeChange,
+    hydrationResolved,
+    isMediaBootstrapPending,
+    openFilePicker,
+    project,
+    resolvedProjectSourceCandidate,
+    t,
+  ])
 
   const contextContent = useMemo(() => {
     if (!hydrationResolved || isMediaBootstrapPending) {
       return (
         <div className="rounded-xl border border-white/10 bg-black/24 px-3 py-3">
-          <p className="text-xs text-zinc-400">Системный контекст</p>
+          <p className="text-xs text-zinc-400">{t("workspaceView.systemContextTitle")}</p>
           <p className="mt-1 text-xs text-zinc-500">
             {hydrationResolved
-              ? "Подключаем источник видео и проверяем контекст проекта."
-              : "Поднимаем сохранённые данные проекта и рабочее окружение."}
+              ? t("workspaceView.systemContextConnecting")
+              : t("workspaceView.systemContextRestoring")}
           </p>
         </div>
       )
@@ -253,7 +322,16 @@ export function WorkspaceView({
       return <InsightsContextPanel controller={controller} project={project} />
     }
     return <ThumbnailsContextPanel controller={controller} />
-  }, [activeMode, controller, handleModeChange, hydrationResolved, isMediaBootstrapPending, project])
+  }, [
+    activeMode,
+    controller,
+    handleModeChange,
+    hydrationResolved,
+    isMediaBootstrapPending,
+    openFilePicker,
+    project,
+    t,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -347,6 +425,127 @@ export function WorkspaceView({
   ])
 
   useEffect(() => {
+    if (!hydrationResolved || !onProjectPatch || project.sourceType !== "youtube") {
+      return
+    }
+
+    const sourceUrl = project.sourceUrl?.trim()
+    if (!sourceUrl) {
+      return
+    }
+
+    const refreshKey = `${project.id}|${sourceUrl}`
+    if (youtubeMetricsRefreshKeyRef.current === refreshKey) {
+      return
+    }
+    youtubeMetricsRefreshKeyRef.current = refreshKey
+
+    let cancelled = false
+    void probeYoutubeFormats(sourceUrl)
+      .then((payload) => {
+        if (cancelled) {
+          return
+        }
+        const nextViewCount = normalizeOptionalMetric(payload.viewCount)
+        const nextLikeCount = normalizeOptionalMetric(payload.likeCount)
+        const nextCommentCount = normalizeOptionalMetric(payload.commentCount)
+        const nextFollowers = normalizeOptionalMetric(payload.channelFollowers)
+        const nextDuration = normalizeOptionalMetric(payload.duration)
+
+        const patch: Partial<Project> = {
+          sourceMetricsUpdatedAt: new Date().toISOString(),
+        }
+
+        if (payload.title?.trim()) {
+          patch.sourceLabel = payload.title.trim()
+        }
+        if (payload.uploader?.trim()) {
+          patch.sourceUploader = payload.uploader.trim()
+        }
+        if (payload.thumbnail?.trim()) {
+          patch.sourceThumbnail = payload.thumbnail.trim()
+        }
+        if (payload.uploadDate?.trim()) {
+          patch.sourceUploadDate = payload.uploadDate.trim()
+        }
+        if (payload.channelId?.trim()) {
+          patch.sourceChannelId = payload.channelId.trim()
+        }
+        if (payload.channelUrl?.trim()) {
+          patch.sourceChannelUrl = payload.channelUrl.trim()
+        }
+        if (nextDuration !== undefined) {
+          patch.sourceDurationSeconds = nextDuration
+        }
+
+        if (nextViewCount !== undefined) {
+          patch.sourceViewCount = nextViewCount
+          if (
+            typeof project.sourceViewCount === "number" &&
+            Number.isFinite(project.sourceViewCount) &&
+            nextViewCount !== Math.max(0, Math.round(project.sourceViewCount))
+          ) {
+            patch.sourceViewCountPrevious = Math.max(0, Math.round(project.sourceViewCount))
+          }
+        }
+        if (nextLikeCount !== undefined) {
+          patch.sourceLikeCount = nextLikeCount
+          if (
+            typeof project.sourceLikeCount === "number" &&
+            Number.isFinite(project.sourceLikeCount) &&
+            nextLikeCount !== Math.max(0, Math.round(project.sourceLikeCount))
+          ) {
+            patch.sourceLikeCountPrevious = Math.max(0, Math.round(project.sourceLikeCount))
+          }
+        }
+        if (nextCommentCount !== undefined) {
+          patch.sourceCommentCount = nextCommentCount
+          if (
+            typeof project.sourceCommentCount === "number" &&
+            Number.isFinite(project.sourceCommentCount) &&
+            nextCommentCount !== Math.max(0, Math.round(project.sourceCommentCount))
+          ) {
+            patch.sourceCommentCountPrevious = Math.max(0, Math.round(project.sourceCommentCount))
+          }
+        }
+        if (nextFollowers !== undefined) {
+          patch.sourceChannelFollowers = nextFollowers
+          if (
+            typeof project.sourceChannelFollowers === "number" &&
+            Number.isFinite(project.sourceChannelFollowers) &&
+            nextFollowers !== Math.max(0, Math.round(project.sourceChannelFollowers))
+          ) {
+            patch.sourceChannelFollowersPrevious = Math.max(
+              0,
+              Math.round(project.sourceChannelFollowers),
+            )
+          }
+        }
+
+        onProjectPatch(project.id, patch)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error("Failed to refresh YouTube source metrics:", error)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    hydrationResolved,
+    onProjectPatch,
+    project.id,
+    project.sourceChannelFollowers,
+    project.sourceCommentCount,
+    project.sourceLikeCount,
+    project.sourceType,
+    project.sourceUrl,
+    project.sourceViewCount,
+  ])
+
+  useEffect(() => {
     const player = videoRef.current
     if (!player) {
       return
@@ -380,32 +579,52 @@ export function WorkspaceView({
     project.sourceType === "youtube"
       ? "YouTube"
       : project.sourceType === "local"
-        ? "Файл"
-        : "Источник"
+        ? t("workspaceView.sourceLabelFile")
+        : t("workspaceView.sourceLabelSource")
   const sourceStatusLabel =
     project.sourceStatus === "ready"
-      ? "Готов"
+      ? t("workspaceView.sourceStatusReady")
       : project.sourceStatus === "failed"
-        ? "Ошибка"
+        ? t("workspaceView.sourceStatusError")
         : project.sourceStatus === "pending"
-          ? "Импорт"
-          : "Без статуса"
+          ? t("workspaceView.sourceStatusImport")
+          : t("workspaceView.sourceStatusNone")
   const activeDuration = Math.round(
     project.sourceDurationSeconds ?? project.durationSeconds ?? controller.media.duration ?? 0,
   )
   const compactStatus = controller.ai.isAnyProcessing
-    ? "ИИ обновляет блоки и метрики..."
+    ? t("workspaceView.compactStatusAiUpdating")
     : !hydrationResolved
-      ? "Восстанавливаем состояние проекта..."
+      ? t("workspaceView.compactStatusRestoring")
       : isMediaBootstrapPending
-        ? "Подключаем медиа проекта..."
-      : `${sourceLabel} · ${sourceStatusLabel} · ${Math.max(0, activeDuration)} с · клипы ${controller.clips.length}`
+        ? t("workspaceView.compactStatusConnectingMedia")
+      : t("workspaceView.compactStatusReady", {
+          sourceLabel,
+          sourceStatusLabel,
+          duration: Math.max(0, activeDuration),
+          clips: controller.clips.length,
+        })
+  const modeTitles: Record<WorkspaceMode, string> = {
+    video: t("workspace.modes.video"),
+    clips: t("workspace.modes.clips"),
+    export: t("workspace.modes.export"),
+    insights: t("workspace.modes.insights"),
+    thumbnails: t("workspace.modes.thumbnails"),
+  }
+
+  const modeDescriptions: Record<WorkspaceMode, string> = {
+    video: t("workspace.modeDescriptions.video"),
+    clips: t("workspace.modeDescriptions.clips"),
+    export: t("workspace.modeDescriptions.export"),
+    insights: t("workspace.modeDescriptions.insights"),
+    thumbnails: t("workspace.modeDescriptions.thumbnails"),
+  }
   const openProjectMediaLocation = useCallback(async () => {
-    const mediaPath = project.importedMediaPath?.trim()
+    const mediaPath = resolvedProjectSourceCandidate?.trim()
     if (!mediaPath) {
       pushToast({
-        title: "Файл не найден",
-        description: "Сначала загрузите или импортируйте видео в проект.",
+        title: t("workspaceView.fileNotFoundTitle"),
+        description: t("workspaceView.fileNotFoundDescription"),
         tone: "info",
         durationMs: 2800,
       })
@@ -415,26 +634,26 @@ export function WorkspaceView({
       await openPathInFileManager(mediaPath)
     } catch (error) {
       pushToast({
-        title: "Не удалось открыть путь",
-        description: error instanceof Error ? error.message : "Проверьте доступ к папке.",
+        title: t("workspaceView.openPathFailedTitle"),
+        description: resolveErrorMessage(error, t("workspaceView.openPathFailedDescription")),
         tone: "error",
         durationMs: 3600,
       })
     }
-  }, [project.importedMediaPath, pushToast])
+  }, [pushToast, resolvedProjectSourceCandidate, t])
 
   const openProjectsFolder = useCallback(async () => {
     try {
       await openProjectsRootDir()
     } catch (error) {
       pushToast({
-        title: "Не удалось открыть папку проектов",
-        description: error instanceof Error ? error.message : "Повторите попытку.",
+        title: t("workspaceView.openProjectsFolderFailedTitle"),
+        description: resolveErrorMessage(error, t("workspaceView.openProjectsFolderFailedDescription")),
         tone: "error",
         durationMs: 3400,
       })
     }
-  }, [pushToast])
+  }, [pushToast, t])
 
   const reportPersistenceError = useCallback(
     (scope: string, error: unknown) => {
@@ -445,16 +664,16 @@ export function WorkspaceView({
       }
       persistErrorReportedAtRef.current = now
       pushToast({
-        title: "Не удалось сохранить изменения",
-        description:
-          error instanceof Error
-            ? error.message
-            : "Проверьте доступ к хранилищу проекта и повторите попытку.",
+        title: t("workspaceView.saveChangesFailedTitle"),
+        description: resolveErrorMessage(
+          error,
+          t("workspaceView.saveChangesFailedDescription"),
+        ),
         tone: "error",
         durationMs: 3600,
       })
     },
-    [pushToast],
+    [pushToast, t],
   )
 
   const persistWorkspaceSnapshot = useCallback(
@@ -729,11 +948,14 @@ export function WorkspaceView({
               }}
             >
               <ArrowLeftIcon className="size-4" />
-              Проекты
+              {t("workspaceView.projects")}
             </Button>
             <div>
-              <p className="text-xs tracking-[0.18em] text-zinc-500 uppercase">Рабочее пространство</p>
+              <p className="text-xs tracking-[0.18em] text-zinc-500 uppercase">{t("workspaceView.workspace")}</p>
               <h2 className="text-lg font-semibold text-zinc-100">{project.name}</h2>
+              <p className="max-w-[74vw] truncate text-xs text-zinc-400 md:max-w-[52vw]">
+                {modeTitles[activeMode]}: {modeDescriptions[activeMode]}
+              </p>
             </div>
           </div>
 
@@ -741,7 +963,7 @@ export function WorkspaceView({
             <div className="hidden min-w-0 xl:block">
               {activeMode === "video" && controller.ai.isAnyProcessing ? (
                 <ShinyText
-                  text="ИИ синхронизирует таймлайн, блоки и прогнозы виральности."
+                  text={t("workspaceView.aiSyncingTimeline")}
                   speed={2.2}
                   className="min-w-0 truncate text-xs text-zinc-400"
                 />
@@ -758,12 +980,12 @@ export function WorkspaceView({
                       variant="ghost"
                       className="text-zinc-400 hover:bg-white/8 hover:text-zinc-200"
                       onClick={openProjectMediaLocation}
-                      disabled={!project.importedMediaPath}
+                      disabled={!resolvedProjectSourceCandidate}
                     >
                       <FolderOpenIcon className="size-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Папка медиа</TooltipContent>
+                  <TooltipContent>{t("workspaceView.mediaFolder")}</TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -777,7 +999,7 @@ export function WorkspaceView({
                       <FolderOpenIcon className="size-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Папка проектов</TooltipContent>
+                  <TooltipContent>{t("workspaceView.projectsFolder")}</TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -794,34 +1016,26 @@ export function WorkspaceView({
                       <Settings2Icon className="size-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Настройки</TooltipContent>
+                  <TooltipContent>{t("workspaceView.settings")}</TooltipContent>
                 </Tooltip>
               </div>
             </TooltipProvider>
           </div>
         </header>
 
-        <div className="relative z-10 grid min-h-0 flex-1 gap-4 lg:grid-cols-[64px_minmax(0,1fr)_360px]">
+        <div className="relative z-10 grid min-h-0 flex-1 gap-4 lg:grid-cols-[64px_minmax(0,1fr)_332px]">
           <ModeRail activeMode={activeMode} onModeChange={handleModeChange} />
 
           <section className="glass-panel flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/12 bg-white/3 backdrop-blur-xl">
-            <header className="border-b border-white/10 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <SparklesIcon className="size-4 text-zinc-300" />
-                <h3 className="text-sm font-semibold text-zinc-100">{modeTitles[activeMode]}</h3>
-              </div>
-              <p className="mt-1 text-xs text-zinc-400">{modeDescriptions[activeMode]}</p>
-            </header>
-
-            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-hidden px-4 pb-4 pt-3">
-              <AnimatePresence mode="sync" initial={false}>
+            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-hidden px-4 py-4">
+              <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={`mode-${activeMode}`}
                   initial={{ opacity: 0, x: 10 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -8 }}
                   transition={workspaceMotion.modeSwitch}
-                  className="h-full min-h-0"
+                  className="h-full min-h-0 overflow-hidden"
                 >
                   {modeContent}
                 </motion.div>
@@ -831,7 +1045,7 @@ export function WorkspaceView({
 
           <aside className="glass-panel min-h-0 overflow-hidden rounded-2xl border border-white/12 bg-white/3 backdrop-blur-xl">
             <div className="h-full overflow-x-hidden overflow-y-auto p-3" data-scroll-region="true">
-              <AnimatePresence mode="sync" initial={false}>
+              <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={`context-${activeMode}`}
                   initial={{ opacity: 0, x: 10 }}

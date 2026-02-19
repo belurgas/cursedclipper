@@ -1,4 +1,5 @@
 import { motion } from "framer-motion"
+import { useTranslation } from "react-i18next"
 
 import { ShinyText } from "@/shared/react-bits/shiny-text"
 
@@ -11,8 +12,11 @@ type ProcessingPillProps = {
 export function ProcessingPill({
   label,
   processing,
-  readyLabel = "Готово",
+  readyLabel,
 }: ProcessingPillProps) {
+  const { t } = useTranslation()
+  const resolvedReadyLabel = readyLabel ?? t("processingPill.ready")
+
   return (
     <div className="rounded-lg border border-white/10 bg-black/25 px-3 py-2">
       <p className="text-[11px] tracking-[0.12em] text-zinc-500 uppercase">{label}</p>
@@ -25,9 +29,9 @@ export function ProcessingPill({
           >
             <span className="relative inline-flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-zinc-200/70" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-zinc-300" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-zinc-300" />
             </span>
-            <ShinyText text="Выполняется" speed={2.2} className="text-xs" />
+            <ShinyText text={t("processingPill.processing")} speed={2.2} className="text-xs" />
           </motion.div>
         ) : (
           <motion.p
@@ -35,7 +39,7 @@ export function ProcessingPill({
             animate={{ opacity: 1, y: 0 }}
             className="text-xs text-zinc-300"
           >
-            {readyLabel}
+            {resolvedReadyLabel}
           </motion.p>
         )}
       </div>

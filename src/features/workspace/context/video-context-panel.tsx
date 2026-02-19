@@ -4,6 +4,7 @@ import {
   UploadIcon,
 } from "lucide-react"
 import { useMemo } from "react"
+import { useTranslation } from "react-i18next"
 
 import { formatSeconds } from "@/app/mock-data"
 import { Button } from "@/components/ui/button"
@@ -22,7 +23,8 @@ export default function VideoContextPanel({
   onOpenFilePicker,
   onSeekToTime,
 }: VideoContextPanelProps) {
-  const { ai, transcript, actions } = controller
+  const { t } = useTranslation()
+  const { ai, transcript, actions, media } = controller
 
   const focusBlock = (block: TranscriptSemanticBlock) => {
     const safeEnd = Math.min(block.wordEnd, Math.max(0, transcript.visibleWordCount - 1))
@@ -84,7 +86,7 @@ export default function VideoContextPanel({
     <div className="space-y-3">
       <div className="rounded-xl border border-white/10 bg-black/26 p-3">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Источник</p>
+          <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">{t("videoContextPanel.sourceTitle")}</p>
           <Button
             size="xs"
             variant="outline"
@@ -92,39 +94,45 @@ export default function VideoContextPanel({
             onClick={onOpenFilePicker}
           >
             <UploadIcon className="size-3.5" />
-            Заменить
+            {t("videoContextPanel.replace")}
           </Button>
         </div>
         <p className="mt-1 text-xs text-zinc-400">
-          Новое видео автоматически обновит таймлайн и семантику.
+          {t("videoContextPanel.sourceDescription")}
         </p>
       </div>
 
       <div className="rounded-xl border border-white/10 bg-black/24 p-3">
-        <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Пайплайн ИИ</p>
+        <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">{t("videoContextPanel.aiPipelineTitle")}</p>
         <div className="mt-2 space-y-1.5">
           {[
             {
+              id: "video-analysis",
+              label: t("videoContextPanel.pipeline.videoAnalysis"),
+              ready: !ai.isAnalyzingVideo && Boolean(ai.videoAnalysis),
+              processing: ai.isAnalyzingVideo,
+            },
+            {
               id: "transcript",
-              label: "Расшифровка",
+              label: t("videoContextPanel.pipeline.transcription"),
               ready: !transcript.isTranscribing && transcript.words.length > 0,
               processing: transcript.isTranscribing,
             },
             {
               id: "score",
-              label: "Скоринг",
+              label: t("videoContextPanel.pipeline.scoring"),
               ready: ai.viralScore !== null,
               processing: ai.isScoring,
             },
             {
               id: "hooks",
-              label: "Хуки",
+              label: t("videoContextPanel.pipeline.hooks"),
               ready: ai.hookCandidates.length > 0,
               processing: ai.isHooking,
             },
             {
               id: "plan",
-              label: "Контент-план",
+              label: t("videoContextPanel.pipeline.contentPlan"),
               ready: ai.contentPlanIdeas.length > 0,
               processing: ai.isPlanning,
             },
@@ -144,14 +152,36 @@ export default function VideoContextPanel({
                       : "text-zinc-500",
                 ].join(" ")}
               >
-                {item.ready ? "Готово" : item.processing ? "В процессе" : "Ожидание"}
+                {item.ready
+                  ? t("videoContextPanel.statusReady")
+                  : item.processing
+                    ? t("videoContextPanel.statusInProgress")
+                    : t("videoContextPanel.statusWaiting")}
               </span>
             </div>
           ))}
         </div>
+        {!transcript.isTranscribing && transcript.words.length === 0 ? (
+          <Button
+            size="xs"
+            className="mt-2 bg-zinc-100 text-zinc-950 hover:bg-zinc-100/90 disabled:bg-zinc-700/35 disabled:text-zinc-400"
+            onClick={actions.startTranscription}
+            disabled={!media.videoUrl}
+          >
+            {t("videoContextPanel.startTranscription")}
+          </Button>
+        ) : null}
         {ai.isAnyProcessing ? (
           <div className="mt-2 rounded-md border border-white/10 bg-white/4 px-2 py-1.5">
-            <ShinyText text="ИИ обновляет модель нарезки..." speed={2.1} className="text-[11px]" />
+            <ShinyText
+              text={
+                ai.isAnalyzingVideo
+                  ? t("videoContextPanel.aiAnalyzingVideo")
+                  : t("videoContextPanel.aiUpdatingClippingModel")
+              }
+              speed={2.1}
+              className="text-[11px]"
+            />
           </div>
         ) : null}
       </div>
@@ -159,10 +189,10 @@ export default function VideoContextPanel({
       <div className="rounded-xl border border-white/10 bg-black/24 p-3">
         <p className="flex items-center gap-1.5 text-xs tracking-[0.15em] text-zinc-500 uppercase">
           <ListVideoIcon className="size-3.5 text-zinc-400" />
-          Семантические блоки
+          {t("videoContextPanel.semanticBlocksTitle")}
         </p>
         {transcript.visibleTranscriptBlocks.length === 0 ? (
-          <p className="mt-2 text-xs text-zinc-500">Блоки появятся после начала расшифровки.</p>
+          <p className="mt-2 text-xs text-zinc-500">{t("videoContextPanel.semanticBlocksEmpty")}</p>
         ) : (
           <div className="mt-2 max-h-48 space-y-1.5 overflow-auto pr-1">
             {transcript.visibleTranscriptBlocks.map((block) => (
@@ -193,10 +223,10 @@ export default function VideoContextPanel({
       <div className="rounded-xl border border-white/10 bg-black/24 p-3">
         <p className="flex items-center gap-1.5 text-xs tracking-[0.15em] text-zinc-500 uppercase">
           <SparklesIcon className="size-3.5 text-zinc-400" />
-          Хуки для фокуса
+          {t("videoContextPanel.focusHooksTitle")}
         </p>
         {ai.hookCandidates.length === 0 ? (
-          <p className="mt-2 text-xs text-zinc-500">Хуки появятся после скоринга.</p>
+          <p className="mt-2 text-xs text-zinc-500">{t("videoContextPanel.focusHooksEmpty")}</p>
         ) : (
           <div className="mt-2 space-y-1.5">
             {ai.hookCandidates.slice(0, 3).map((hook) => {
@@ -216,7 +246,10 @@ export default function VideoContextPanel({
                   <p className="line-clamp-2 text-xs text-zinc-200">{hook.headline}</p>
                   {block ? (
                     <p className="mt-1 text-[11px] text-zinc-500">
-                      Перейти к блоку: {block.label} · {formatSeconds(block.start)}
+                      {t("videoContextPanel.jumpToBlock", {
+                        label: block.label,
+                        time: formatSeconds(block.start),
+                      })}
                     </p>
                   ) : null}
                 </button>

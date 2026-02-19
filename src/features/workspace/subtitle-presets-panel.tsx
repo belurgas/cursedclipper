@@ -1,4 +1,5 @@
 import { motion } from "framer-motion"
+import { useTranslation } from "react-i18next"
 
 import type { SubtitlePreset } from "@/app/types"
 import { SpotlightCard } from "@/shared/react-bits/spotlight-card"
@@ -14,16 +15,28 @@ export function SubtitlePresetsPanel({
   activePresetId,
   onSelect,
 }: SubtitlePresetsPanelProps) {
+  const { t } = useTranslation()
   return (
     <SpotlightCard className="rounded-xl border border-white/12 bg-black/28 p-3">
-      <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Пресеты субтитров</p>
+      <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">
+        {t("subtitlePresetsPanel.title")}
+      </p>
       <p className="mt-1 text-xs text-zinc-400">
-        Типографические стили под разные платформы и сценарии читаемости.
+        {t("subtitlePresetsPanel.description")}
       </p>
 
       <div className="mt-3 grid grid-cols-1 gap-2">
         {presets.map((preset) => {
           const selected = preset.id === activePresetId
+          const presetName = t(`subtitlePresetCatalog.${preset.id}.name`, {
+            defaultValue: preset.name,
+          })
+          const presetDescription = t(`subtitlePresetCatalog.${preset.id}.description`, {
+            defaultValue: preset.description,
+          })
+          const presetStyleSample = t(`subtitlePresetCatalog.${preset.id}.styleSample`, {
+            defaultValue: preset.styleSample,
+          })
           return (
             <motion.button
               key={preset.id}
@@ -37,11 +50,11 @@ export function SubtitlePresetsPanel({
               ].join(" ")}
             >
               <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium text-zinc-100">{preset.name}</p>
-                {selected ? <span className="text-[11px] text-zinc-300">Активен</span> : null}
+                <p className="text-sm font-medium text-zinc-100">{presetName}</p>
+                {selected ? <span className="text-[11px] text-zinc-300">{t("subtitlePresetsPanel.active")}</span> : null}
               </div>
-              <p className="mt-1 text-xs text-zinc-400">{preset.description}</p>
-              <p className="mt-2 text-sm text-zinc-200">{preset.styleSample}</p>
+              <p className="mt-1 text-xs text-zinc-400">{presetDescription}</p>
+              <p className="mt-2 text-sm text-zinc-200">{presetStyleSample}</p>
             </motion.button>
           )
         })}

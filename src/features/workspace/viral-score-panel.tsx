@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { ChevronDownIcon } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import type { ViralInsight } from "@/app/types"
 import { SpotlightCard } from "@/shared/react-bits/spotlight-card"
@@ -20,18 +21,18 @@ const impactColor: Record<ViralInsight["impact"], string> = {
   Low: "text-zinc-400",
 }
 
-const impactText: Record<ViralInsight["impact"], string> = {
-  High: "Высокое влияние",
-  Medium: "Среднее влияние",
-  Low: "Низкое влияние",
-}
-
 export function ViralScorePanel({
   score,
   insights,
   processing,
 }: ViralScorePanelProps) {
+  const { t } = useTranslation()
   const [expandedId, setExpandedId] = useState<string | null>(insights[0]?.id ?? null)
+  const impactText: Record<ViralInsight["impact"], string> = {
+    High: t("viralScorePanel.impactHigh"),
+    Medium: t("viralScorePanel.impactMedium"),
+    Low: t("viralScorePanel.impactLow"),
+  }
 
   const meterProgress = useMemo(() => {
     if (score === null) {
@@ -45,9 +46,9 @@ export function ViralScorePanel({
   return (
     <SpotlightCard className="min-w-0 rounded-xl border border-white/12 bg-black/28 p-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">Виральный индекс</p>
+        <p className="text-xs tracking-[0.15em] text-zinc-500 uppercase">{t("viralScorePanel.title")}</p>
         {processing ? (
-          <ShinyText text="Анализируем поведенческие сигналы..." speed={2.4} className="text-xs" />
+          <ShinyText text={t("viralScorePanel.processing")} speed={2.4} className="text-xs" />
         ) : null}
       </div>
 
@@ -91,33 +92,33 @@ export function ViralScorePanel({
             >
               {score ?? "--"}
             </motion.p>
-            <p className="text-center text-[11px] text-zinc-500">/ 100</p>
+            <p className="text-center text-[11px] text-zinc-500">{t("viralScorePanel.scale")}</p>
           </div>
         </div>
 
         <div className="min-w-0 space-y-2">
           <p className="text-sm leading-relaxed break-words text-zinc-300">
             {processing
-              ? "ИИ оценивает хуки удержания, ритм подачи и вероятность повторных просмотров."
-              : "Индекс объединяет силу старта, плотность нарратива и потенциал повторного просмотра."}
+              ? t("viralScorePanel.summaryProcessing")
+              : t("viralScorePanel.summaryReady")}
           </p>
           <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
             <div className="rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-zinc-300">
-              Хук
+              {t("viralScorePanel.metricHook")}
               <p className="mt-0.5 text-sm font-semibold text-zinc-100">
-                {score ? Math.max(68, score - 4) : "--"}
+                {score !== null ? Math.max(68, score - 4) : "--"}
               </p>
             </div>
             <div className="rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-zinc-300">
-              Ритм
+              {t("viralScorePanel.metricPace")}
               <p className="mt-0.5 text-sm font-semibold text-zinc-100">
-                {score ? Math.max(62, score - 8) : "--"}
+                {score !== null ? Math.max(62, score - 8) : "--"}
               </p>
             </div>
             <div className="rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-zinc-300">
-              Повтор
+              {t("viralScorePanel.metricRewatch")}
               <p className="mt-0.5 text-sm font-semibold text-zinc-100">
-                {score ? Math.max(60, score - 6) : "--"}
+                {score !== null ? Math.max(60, score - 6) : "--"}
               </p>
             </div>
           </div>

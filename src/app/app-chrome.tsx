@@ -7,6 +7,7 @@ import {
   SquareIcon,
   XIcon,
 } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import {
   DropdownMenu,
@@ -48,6 +49,7 @@ export function AppChrome({
   onOpenNotification,
   onMarkAllRead,
 }: AppChromeProps) {
+  const { t } = useTranslation()
   const [isMaximized, setIsMaximized] = useState<boolean>(
     () => document.fullscreenElement !== null,
   )
@@ -182,8 +184,8 @@ export function AppChrome({
               <button
                 type="button"
                 className="relative grid h-6 w-6 place-content-center rounded-md border border-transparent text-zinc-400 transition hover:border-white/10 hover:bg-white/8 hover:text-zinc-200"
-                aria-label="Уведомления"
-                title="Уведомления"
+                aria-label={t("app.notifications")}
+                title={t("app.notifications")}
               >
                 <BellIcon className="size-3.5" />
                 {hasUnread ? (
@@ -198,7 +200,7 @@ export function AppChrome({
             >
               <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
                 <p className="text-xs tracking-[0.14em] text-zinc-400 uppercase">
-                  Уведомления
+                  {t("app.notifications")}
                 </p>
                 <button
                   type="button"
@@ -206,14 +208,14 @@ export function AppChrome({
                   className="inline-flex items-center gap-1 rounded-md border border-white/12 bg-white/6 px-2 py-1 text-[11px] text-zinc-300 transition hover:bg-white/10 hover:text-zinc-100"
                 >
                   <CheckCheckIcon className="size-3.5" />
-                  Прочитано
+                  {t("app.markRead")}
                 </button>
               </div>
 
               <div className="max-h-[360px] overflow-x-hidden overflow-y-auto p-2">
                 {notifications.length === 0 ? (
                   <div className="rounded-lg border border-white/10 bg-black/24 px-3 py-3 text-xs text-zinc-400">
-                    Пока нет событий.
+                    {t("app.noEvents")}
                   </div>
                 ) : (
                   <div className="space-y-1.5">
@@ -258,8 +260,8 @@ export function AppChrome({
               void handleAction("minimize")
             }}
             className="grid h-6 w-6 place-content-center rounded-md border border-transparent text-zinc-400 transition hover:border-white/10 hover:bg-white/8 hover:text-zinc-200"
-            aria-label="Свернуть окно"
-            title="Свернуть"
+            aria-label={t("app.minimize")}
+            title={t("app.minimize")}
           >
             <MinusIcon className="size-3.5" />
           </button>
@@ -269,8 +271,8 @@ export function AppChrome({
               void handleAction("maximize")
             }}
             className="grid h-6 w-6 place-content-center rounded-md border border-transparent text-zinc-400 transition hover:border-white/10 hover:bg-white/8 hover:text-zinc-200"
-            aria-label={isMaximized ? "Восстановить окно" : "Развернуть окно"}
-            title={isMaximized ? "Восстановить" : "Развернуть"}
+            aria-label={isMaximized ? t("app.restore") : t("app.maximize")}
+            title={isMaximized ? t("app.restore") : t("app.maximize")}
           >
             <SquareIcon className="size-3" />
           </button>
@@ -280,8 +282,8 @@ export function AppChrome({
               void handleAction("close")
             }}
             className="grid h-6 w-6 place-content-center rounded-md border border-transparent text-zinc-400 transition hover:border-rose-300/30 hover:bg-rose-400/18 hover:text-rose-100"
-            aria-label="Закрыть окно"
-            title="Закрыть"
+            aria-label={t("app.close")}
+            title={t("app.close")}
           >
             <XIcon className="size-3.5" />
           </button>
