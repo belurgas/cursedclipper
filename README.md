@@ -18,6 +18,7 @@
 </p>
 
 ## Overview
+<img width="4096" height="2731" alt="Group 25" src="https://github.com/user-attachments/assets/7da9d7a2-c610-4d49-8648-25e9cc588ec8" />
 
 Cursed Clipper is a creator-focused workflow for turning long videos into high-performing short clips:
 
