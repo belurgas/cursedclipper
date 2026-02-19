@@ -21,11 +21,11 @@ jobs:
             label: windows
             bundle: nsis
             artifact: tauri-windows-nsis
-          - os: macos-13
+          - os: macos-15-intel
             label: macos-intel
             bundle: dmg
             artifact: tauri-macos-intel-dmg
-          - os: macos-latest
+          - os: macos-15
             label: macos-apple-silicon
             bundle: dmg
             artifact: tauri-macos-apple-silicon-dmg
