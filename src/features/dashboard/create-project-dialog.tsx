@@ -35,6 +35,7 @@ import {
   pickLocalVideoFile,
   probeYoutubeFormats,
   stageLocalVideoFile,
+  type RuntimeToolsStatus,
   type YoutubeFormatOption,
   type YoutubeProbeResult,
 } from "@/shared/tauri/backend"
@@ -44,6 +45,7 @@ import { useAppToast } from "@/shared/ui/app-toast-provider"
 type CreateProjectDialogProps = {
   onCreate: (project: Project) => void
   onUpdateProject: (projectId: string, patch: Partial<Project>) => void
+  runtimeStatus?: RuntimeToolsStatus | null
 }
 
 type SourceMode = "local" | "youtube"
@@ -139,7 +141,7 @@ function dedupeFormatsByResolution(
   )
 }
 
-export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProjectDialogProps) {
+export function CreateProjectDialog({ onCreate, onUpdateProject, runtimeStatus }: CreateProjectDialogProps) {
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const { pushToast } = useAppToast()
@@ -194,6 +196,15 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
       form.description.trim().length < 12
         ? t("createProject.validationBriefMin")
         : ""
+    
+    // Проверка наличия ffmpeg для любых проектов
+    const ffmpegMissing = !runtimeStatus?.ffmpeg?.available
+    const ffmpegError = ffmpegMissing ? t("createProject.validationFfmpegRequired") : ""
+    
+    // Проверка наличия yt-dlp для YouTube проектов
+    const ytdlpMissing = sourceMode === "youtube" && !runtimeStatus?.ytdlp?.available
+    const ytdlpError = ytdlpMissing ? t("createProject.validationYtdlpRequired") : ""
+    
     const sourceError =
       sourceMode === "local"
         ? localFile || localFilePath
@@ -202,13 +213,16 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
         : selectedFormatId
           ? ""
           : t("createProject.validationSelectYoutubeFormat")
+    
     return {
       nameError,
       descriptionError,
+      ffmpegError,
+      ytdlpError,
       sourceError,
-      valid: !nameError && !descriptionError && !sourceError,
+      valid: !nameError && !descriptionError && !ffmpegError && !ytdlpError && !sourceError,
     }
-  }, [form.description, form.name, localFile, localFilePath, selectedFormatId, sourceMode, t])
+  }, [form.description, form.name, localFile, localFilePath, selectedFormatId, sourceMode, runtimeStatus, t])
 
   useEffect(() => {
     if (!probeResult) {
@@ -719,6 +733,16 @@ export function CreateProjectDialog({ onCreate, onUpdateProject }: CreateProject
               </FieldGroup>
 
               <FieldError>{touched ? validation.sourceError : ""}</FieldError>
+              {validation.ffmpegError ? (
+                <div className="mt-2 rounded-lg border border-rose-300/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                  {validation.ffmpegError}
+                </div>
+              ) : null}
+              {validation.ytdlpError ? (
+                <div className="mt-2 rounded-lg border border-rose-300/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                  {validation.ytdlpError}
+                </div>
+              ) : null}
               {submitError ? (
                 <div className="mt-2 rounded-lg border border-rose-300/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
                   {submitError}

@@ -91,7 +91,7 @@ export function DashboardView({
         />
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden lg:gap-5">
-          <Card className="glass-panel border-white/12 bg-white/3 backdrop-blur-xl">
+          <Card className="glass-panel border-white/12 bg-white/3">
             <CardContent className="flex flex-col gap-4 py-5 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-xs tracking-[0.2em] text-zinc-500 uppercase">
@@ -105,7 +105,11 @@ export function DashboardView({
                 </p>
               </div>
               {activeSection === "projects" ? (
-                <CreateProjectDialog onCreate={onCreateProject} onUpdateProject={onUpdateProject} />
+                <CreateProjectDialog 
+                  onCreate={onCreateProject} 
+                  onUpdateProject={onUpdateProject}
+                  runtimeStatus={runtimeStatus}
+                />
               ) : (
                 <div className="rounded-lg border border-white/10 bg-black/24 px-3 py-2">
                   <ShinyText
@@ -145,7 +149,7 @@ export function DashboardView({
                     </section>
 
                     {projects.length === 0 ? (
-                      <Card className="border-white/12 bg-white/4 backdrop-blur-xl">
+                      <Card className="border-white/12 bg-white/4">
                         <CardContent className="py-12">
                           <div className="mx-auto flex max-w-xl flex-col items-center text-center">
                             <div className="grid size-11 place-content-center rounded-xl border border-white/15 bg-black/24">
@@ -158,7 +162,11 @@ export function DashboardView({
                               {t("dashboard.emptyProjectsDescription")}
                             </p>
                             <div className="mt-5">
-                              <CreateProjectDialog onCreate={onCreateProject} onUpdateProject={onUpdateProject} />
+                              <CreateProjectDialog 
+                                onCreate={onCreateProject} 
+                                onUpdateProject={onUpdateProject}
+                                runtimeStatus={runtimeStatus}
+                              />
                             </div>
                           </div>
                         </CardContent>

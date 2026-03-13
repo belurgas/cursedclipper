@@ -326,8 +326,22 @@ pub fn save_project_workspace_state(
     state_json: String,
 ) -> Result<(), String> {
     let safe_project_id = sanitize_text(project_id, 3, 120, "Project ID")?;
-    if state_json.len() > 32_000_000 {
-        return Err("Project state payload is too large to save.".to_string());
+    const MAX_STATE_SIZE: usize = 32_000_000; // 32MB
+    
+    if state_json.len() > MAX_STATE_SIZE {
+        return Err(format!(
+            "Project state is too large ({:.1}MB). Maximum allowed is 32MB. \
+            Try reducing the number of clips or transcript size.",
+            state_json.len() as f64 / 1_000_000.0
+        ));
+    }
+    
+    // Warn if approaching limit
+    if state_json.len() > MAX_STATE_SIZE * 80 / 100 {
+        eprintln!(
+            "Warning: Project state size is {:.1}MB, approaching 32MB limit",
+            state_json.len() as f64 / 1_000_000.0
+        );
     }
 
     let connection = open_database(&app)?;

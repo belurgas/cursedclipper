@@ -319,6 +319,8 @@
     "validationBriefMin": "Add a short brief (at least 12 characters) so AI can set context.",
     "validationSelectLocalFile": "Select a video file from device.",
     "validationSelectYoutubeFormat": "Check URL and select an import format.",
+    "validationFfmpegRequired": "FFmpeg and FFprobe are required for video processing. Install them in Settings.",
+    "validationYtdlpRequired": "yt-dlp is required for YouTube downloads. Install it in Settings.",
     "pasteYoutubeUrl": "Paste a YouTube URL.",
     "probeFailed": "Failed to fetch formats.",
     "localFileFallback": "Local file",

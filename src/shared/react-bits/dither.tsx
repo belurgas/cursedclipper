@@ -21,11 +21,14 @@ export function Dither({
 
   const style = {
     backgroundImage: `
-      radial-gradient(circle, rgba(${gray},${gray},${gray},0.28) 0.7px, transparent 0.9px),
-      radial-gradient(circle at 20% 14%, rgba(${waveR},${waveG},${waveB},0.08), transparent 56%),
-      radial-gradient(circle at 82% 8%, rgba(${waveR},${waveG},${waveB},0.06), transparent 52%)
+      radial-gradient(circle, rgba(${gray},${gray},${gray},0.18) 1px, transparent 1px),
+      radial-gradient(circle at 20% 14%, rgba(${waveR},${waveG},${waveB},0.05), transparent 56%),
+      radial-gradient(circle at 82% 8%, rgba(${waveR},${waveG},${waveB},0.04), transparent 52%)
     `,
-    backgroundSize: "4px 4px, 100% 100%, 100% 100%",
+    backgroundSize: "6px 6px, 100% 100%, 100% 100%",
+    backgroundPosition: "0 0, 0 0, 0 0",
+    imageRendering: "auto",
+    willChange: "auto",
   } as CSSProperties
 
   return <div className={className} style={style} />

@@ -46,7 +46,24 @@ pub(super) fn stage_local_video_file_sync(
         }
     }
 
-    fs::copy(&source, &target).map_err(|error| format!("Failed to copy local file: {error}"))?;
+    // Use atomic rename pattern: copy to temp, then rename
+    let temp_target = target.with_extension("tmp");
+    
+    // Clean up any existing temp file
+    if temp_target.exists() {
+        let _ = fs::remove_file(&temp_target);
+    }
+    
+    fs::copy(&source, &temp_target)
+        .map_err(|error| format!("Failed to copy local file: {error}"))?;
+    
+    // Atomic rename
+    fs::rename(&temp_target, &target)
+        .map_err(|error| {
+            // Cleanup on failure
+            let _ = fs::remove_file(&temp_target);
+            format!("Failed to finalize file copy: {error}")
+        })?;
 
     let ffprobe_binary = resolve_ffprobe_binary(&app, &settings).map(|(path, _)| path);
     let ffmpeg_binary = resolve_ffmpeg_binary(&app, &settings).map(|(path, _)| path);

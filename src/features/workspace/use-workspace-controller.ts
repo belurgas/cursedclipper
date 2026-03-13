@@ -822,6 +822,15 @@ export function useWorkspaceController(projectId: string, projectName: string) {
           height: detectedHeight,
           fileName: file.name,
         })
+        // Clean up probe element to prevent memory leak
+        metadataProbe.src = ""
+        metadataProbe.load()
+      }
+      metadataProbe.onerror = () => {
+        console.error("Failed to load video metadata for uploaded file")
+        // Clean up probe element on error
+        metadataProbe.src = ""
+        metadataProbe.load()
       }
     },
     [
@@ -892,6 +901,8 @@ export function useWorkspaceController(projectId: string, projectName: string) {
       const metadataProbe = document.createElement("video")
       metadataProbe.preload = "metadata"
       metadataProbe.src = sourceUrl
+      // Capture current duration for closure to avoid stale value
+      const fallbackDuration = duration
       metadataProbe.onloadedmetadata = () => {
         const detectedDuration = metadataProbe.duration || 0
         const detectedWidth = metadataProbe.videoWidth || 0
@@ -904,11 +915,20 @@ export function useWorkspaceController(projectId: string, projectName: string) {
         setVideoWidth(detectedWidth)
         setVideoHeight(detectedHeight)
         startMockVideoAnalysis({
-          duration: detectedDuration || duration || 120,
+          duration: detectedDuration || fallbackDuration || 120,
           width: detectedWidth,
           height: detectedHeight,
           fileName,
         })
+        // Clean up probe element to prevent memory leak
+        metadataProbe.src = ""
+        metadataProbe.load()
+      }
+      metadataProbe.onerror = () => {
+        console.error("Failed to load video metadata for imported path:", mediaPath)
+        // Clean up probe element on error
+        metadataProbe.src = ""
+        metadataProbe.load()
       }
     },
     [

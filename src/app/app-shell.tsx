@@ -233,7 +233,12 @@ export function AppShell() {
   )
 
   const updateProject = useCallback(
-    (projectId: string, patch: Partial<Project>) => {
+    async (projectId: string, patch: Partial<Project>) => {
+      // Store previous state for rollback
+      const previousProjects = projects
+      const previousProject = previousProjects.find((p) => p.id === projectId)
+      
+      // Optimistic UI update
       setProjects((previous) =>
         previous.map((project) =>
           project.id === projectId
@@ -242,53 +247,62 @@ export function AppShell() {
         ),
       )
 
-      void updateProjectViaBackend(projectId, {
-        name: patch.name,
-        description: patch.description,
-        status: patch.status,
-        clips: patch.clips,
-        durationSeconds: patch.durationSeconds,
-        sourceType: patch.sourceType,
-        sourceLabel: patch.sourceLabel,
-        sourceUrl: patch.sourceUrl,
-        sourceStatus: patch.sourceStatus,
-        sourceUploader: patch.sourceUploader,
-        sourceDurationSeconds: patch.sourceDurationSeconds,
-        sourceThumbnail: patch.sourceThumbnail,
-        sourceViewCount: patch.sourceViewCount,
-        sourceViewCountPrevious: patch.sourceViewCountPrevious,
-        sourceLikeCount: patch.sourceLikeCount,
-        sourceLikeCountPrevious: patch.sourceLikeCountPrevious,
-        sourceCommentCount: patch.sourceCommentCount,
-        sourceCommentCountPrevious: patch.sourceCommentCountPrevious,
-        sourceUploadDate: patch.sourceUploadDate,
-        sourceChannelId: patch.sourceChannelId,
-        sourceChannelUrl: patch.sourceChannelUrl,
-        sourceChannelFollowers: patch.sourceChannelFollowers,
-        sourceChannelFollowersPrevious: patch.sourceChannelFollowersPrevious,
-        sourceMetricsUpdatedAt: patch.sourceMetricsUpdatedAt,
-        importedMediaPath: patch.importedMediaPath,
-        updatedAt: patch.updatedAt,
-      })
-        .then((project) => {
+      try {
+        const updatedProject = await updateProjectViaBackend(projectId, {
+          name: patch.name,
+          description: patch.description,
+          status: patch.status,
+          clips: patch.clips,
+          durationSeconds: patch.durationSeconds,
+          sourceType: patch.sourceType,
+          sourceLabel: patch.sourceLabel,
+          sourceUrl: patch.sourceUrl,
+          sourceStatus: patch.sourceStatus,
+          sourceUploader: patch.sourceUploader,
+          sourceDurationSeconds: patch.sourceDurationSeconds,
+          sourceThumbnail: patch.sourceThumbnail,
+          sourceViewCount: patch.sourceViewCount,
+          sourceViewCountPrevious: patch.sourceViewCountPrevious,
+          sourceLikeCount: patch.sourceLikeCount,
+          sourceLikeCountPrevious: patch.sourceLikeCountPrevious,
+          sourceCommentCount: patch.sourceCommentCount,
+          sourceCommentCountPrevious: patch.sourceCommentCountPrevious,
+          sourceUploadDate: patch.sourceUploadDate,
+          sourceChannelId: patch.sourceChannelId,
+          sourceChannelUrl: patch.sourceChannelUrl,
+          sourceChannelFollowers: patch.sourceChannelFollowers,
+          sourceChannelFollowersPrevious: patch.sourceChannelFollowersPrevious,
+          sourceMetricsUpdatedAt: patch.sourceMetricsUpdatedAt,
+          importedMediaPath: patch.importedMediaPath,
+          updatedAt: patch.updatedAt,
+        })
+        
+        // Update with confirmed backend state - use functional update to avoid race conditions
+        setProjects((previous) =>
+          previous.map((current) => (current.id === projectId ? updatedProject : current)),
+        )
+      } catch (error) {
+        console.error("Failed to persist project patch:", error)
+        
+        // Rollback to previous state - use functional update to ensure we rollback from current state
+        if (previousProject) {
           setProjects((previous) =>
-            previous.map((current) => (current.id === projectId ? project : current)),
+            previous.map((current) => (current.id === projectId ? previousProject : current)),
           )
+        }
+        
+        pushToast({
+          title: t("appShell.patchNotSavedTitle"),
+          description:
+            error instanceof Error && error.message.trim()
+              ? error.message
+              : t("appShell.patchNotSavedDescription"),
+          tone: "error",
+          durationMs: 3600,
         })
-        .catch((error) => {
-          console.error("Failed to persist project patch:", error)
-          pushToast({
-            title: t("appShell.patchNotSavedTitle"),
-            description:
-              error instanceof Error && error.message.trim()
-                ? error.message
-                : t("appShell.patchNotSavedDescription"),
-            tone: "error",
-            durationMs: 3600,
-          })
-        })
+      }
     },
-    [pushToast, t],
+    [projects, pushToast, t],
   )
 
   useEffect(() => {
@@ -605,8 +619,7 @@ export function AppShell() {
   )
 
   return (
-    <div className="relative flex h-dvh flex-col overflow-hidden bg-[#05070a] text-zinc-100">
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-[#05070a]" />
+    <div className="relative flex h-full flex-col overflow-hidden text-zinc-100">
       <AppChrome
         notifications={notifications}
         onOpenNotification={openNotification}

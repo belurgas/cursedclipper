@@ -44,16 +44,14 @@ export function Sidebar({ news, projects, activeSection, onSectionChange }: Side
   const { t } = useTranslation()
   const totalProjects = projects.length
   const totalClips = projects.reduce((sum, project) => sum + Math.max(0, project.clips), 0)
-  const workspaceLabel =
-    projects.find((project) => project.sourceUploader?.trim())?.sourceUploader?.trim() ??
-    t("dashboard.profile.localWorkspace")
+  const workspaceLabel = "Kali Forge"
   const workspaceInitials = initialsFromLabel(workspaceLabel)
   return (
     <aside
       className="flex min-h-0 w-full shrink-0 flex-col gap-4 pr-0 lg:max-w-72 lg:pr-2"
       data-scroll-region="true"
     >
-      <Card className="glass-panel border-white/12 bg-white/4 backdrop-blur-xl">
+      <Card className="glass-panel border-white/12 bg-white/4">
         <CardHeader>
           <CardTitle className="text-sm text-zinc-300">{t("dashboard.profile.title")}</CardTitle>
         </CardHeader>
@@ -82,7 +80,7 @@ export function Sidebar({ news, projects, activeSection, onSectionChange }: Side
         </CardContent>
       </Card>
 
-      <Card className="glass-panel border-white/12 bg-white/4 backdrop-blur-xl">
+      <Card className="glass-panel border-white/12 bg-white/4">
         <CardHeader>
           <CardTitle className="text-sm text-zinc-300">{t("dashboard.sectionsTitle")}</CardTitle>
         </CardHeader>
@@ -109,7 +107,7 @@ export function Sidebar({ news, projects, activeSection, onSectionChange }: Side
         </CardContent>
       </Card>
 
-      <Card className="glass-panel border-white/12 bg-white/4 backdrop-blur-xl">
+      <Card className="glass-panel border-white/12 bg-white/4">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm text-zinc-300">
             <SparklesIcon className="size-4 text-zinc-300" />

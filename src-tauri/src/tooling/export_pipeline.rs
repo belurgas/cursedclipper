@@ -275,7 +275,19 @@ pub(super) fn subtitle_alignment(position: &str) -> u32 {
     }
 }
 
-pub(super) fn escape_ffmpeg_filter_path(path: &Path) -> String {
+pub(super) fn escape_ffmpeg_filter_path(path: &Path) -> Result<String, String> {
+    // Validate path exists and is readable
+    if !path.exists() {
+        return Err(format!("Subtitle file not found: {}", path.display()));
+    }
+    if !path.is_file() {
+        return Err(format!("Subtitle path is not a file: {}", path.display()));
+    }
+    
+    // Check if file is readable by attempting to open it
+    fs::File::open(path)
+        .map_err(|error| format!("Cannot read subtitle file {}: {error}", path.display()))?;
+    
     let normalized = path.to_string_lossy().replace('\\', "/");
     let mut escaped = String::with_capacity(normalized.len() + 12);
     for ch in normalized.chars() {
@@ -289,7 +301,7 @@ pub(super) fn escape_ffmpeg_filter_path(path: &Path) -> String {
             _ => escaped.push(ch),
         }
     }
-    escaped
+    Ok(escaped)
 }
 
 pub(super) fn push_chunk(
@@ -311,8 +323,9 @@ pub(super) fn split_chunk_into_lines(
     if chunk.is_empty() {
         return Vec::new();
     }
-    let mut lines: Vec<Vec<ClipSubtitleWord>> = Vec::new();
-    let mut current_line: Vec<ClipSubtitleWord> = Vec::new();
+    
+    let mut lines: Vec<Vec<ClipSubtitleWord>> = Vec::with_capacity(max_lines);
+    let mut current_line: Vec<ClipSubtitleWord> = Vec::with_capacity(max_words_per_line);
     let mut current_chars = 0_usize;
 
     for word in chunk {
@@ -321,12 +334,22 @@ pub(super) fn split_chunk_into_lines(
         } else {
             word.text.chars().count() + 1
         };
+        
         let exceeds_word_count = current_line.len() >= max_words_per_line;
         let exceeds_char_count = current_chars + additional > max_chars_per_line;
+        
         if !current_line.is_empty() && (exceeds_word_count || exceeds_char_count) {
-            lines.push(std::mem::take(&mut current_line));
-            current_chars = 0;
+            if lines.len() < max_lines {
+                lines.push(std::mem::take(&mut current_line));
+                current_chars = 0;
+            } else {
+                // Already at max lines, add to last line
+                current_line.push(word.clone());
+                current_chars += additional;
+                continue;
+            }
         }
+        
         current_chars += if current_line.is_empty() {
             word.text.chars().count()
         } else {
@@ -334,23 +357,12 @@ pub(super) fn split_chunk_into_lines(
         };
         current_line.push(word.clone());
     }
+    
     if !current_line.is_empty() {
         lines.push(current_line);
     }
-    if lines.len() <= max_lines {
-        return lines;
-    }
-
-    let mut compacted: Vec<Vec<ClipSubtitleWord>> = lines.into_iter().take(max_lines).collect();
-    let overflow = chunk
-        .iter()
-        .skip(compacted.iter().map(|line| line.len()).sum::<usize>())
-        .cloned()
-        .collect::<Vec<_>>();
-    if let Some(last_line) = compacted.last_mut() {
-        last_line.extend(overflow);
-    }
-    compacted
+    
+    lines
 }
 
 pub(super) fn build_subtitle_event_text(
@@ -431,9 +443,14 @@ pub(super) fn build_clip_subtitle_ass_content(
         .filter_map(|word| {
             let start = word.start.max(context.clip_start);
             let end = word.end.min(context.clip_end);
-            if !start.is_finite() || !end.is_finite() || end <= start + 0.025 {
+            
+            // Filter out words that are too short (likely timing errors)
+            // Minimum duration: 15ms (configurable threshold for fast speech)
+            const MIN_WORD_DURATION: f64 = 0.015;
+            if !start.is_finite() || !end.is_finite() || end <= start + MIN_WORD_DURATION {
                 return None;
             }
+            
             let normalized =
                 normalize_subtitle_word_text(&word.text, subtitles.render_profile.all_caps);
             if normalized.is_empty() {
@@ -654,7 +671,7 @@ pub(super) fn build_export_video_with_ffmpeg(job: ExportVideoRenderJob<'_>) -> R
     let safe_offset_x = job.render_offset_x.clamp(-1.0, 1.0);
     let safe_offset_y = job.render_offset_y.clamp(-1.0, 1.0);
 
-    let build_filter = |mode: &str| -> String {
+    let build_filter = |mode: &str| -> Result<String, String> {
         let mut vf = if mode.eq_ignore_ascii_case("cover") {
             format!(
                 "scale={target_w}:{target_h}:force_original_aspect_ratio=increase,scale='trunc(iw*{safe_zoom:.5}/2)*2':'trunc(ih*{safe_zoom:.5}/2)*2',pad='max(iw,{target_w})':'max(ih,{target_h})':(ow-iw)/2:(oh-ih)/2:black,crop={target_w}:{target_h}:max(0,min(iw-{target_w},(iw-{target_w})/2+({safe_offset_x:.5})*(iw-{target_w})/2)):max(0,min(ih-{target_h},(ih-{target_h})/2+({safe_offset_y:.5})*(ih-{target_h})/2)),setsar=1",
@@ -675,12 +692,12 @@ pub(super) fn build_export_video_with_ffmpeg(job: ExportVideoRenderJob<'_>) -> R
             )
         };
         if let Some(ass_path) = job.subtitle_ass_path {
-            let escaped_sub_path = escape_ffmpeg_filter_path(ass_path);
+            let escaped_sub_path = escape_ffmpeg_filter_path(ass_path)?;
             vf.push_str(&format!(
                 ",subtitles=filename='{escaped_sub_path}':charenc=UTF-8"
             ));
         }
-        vf
+        Ok(vf)
     };
 
     let run_with_filter = |vf: &str| -> Result<(), String> {
@@ -723,19 +740,48 @@ pub(super) fn build_export_video_with_ffmpeg(job: ExportVideoRenderJob<'_>) -> R
         }
 
         let stderr = String::from_utf8_lossy(&output.stderr);
+        
+        // Log full stderr to file for debugging
+        if let Some(parent) = job.output_path.parent() {
+            let log_path = parent.join(format!(
+                "ffmpeg-error-{}.log",
+                job.output_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+            ));
+            let _ = fs::write(&log_path, stderr.as_bytes());
+        }
+        
+        // Extract meaningful error lines
+        let error_lines: Vec<&str> = stderr
+            .lines()
+            .filter(|line| {
+                let lower = line.to_lowercase();
+                lower.contains("error") || 
+                lower.contains("invalid") || 
+                lower.contains("failed") ||
+                lower.contains("could not") ||
+                lower.contains("unable to")
+            })
+            .collect();
+        
         let tail: Vec<&str> = stderr
             .lines()
             .map(|line| line.trim())
             .filter(|line| !line.is_empty())
             .rev()
-            .take(4)
+            .take(6)
             .collect();
-        let message = if tail.is_empty() {
-            "FFmpeg exited with an error.".to_string()
-        } else {
+            
+        let message = if !error_lines.is_empty() {
+            format!("FFmpeg error: {}", error_lines.join(" | "))
+        } else if !tail.is_empty() {
             let mut ordered = tail;
             ordered.reverse();
             format!("FFmpeg: {}", ordered.join(" | "))
+        } else {
+            format!("FFmpeg exited with code {:?}. Check logs for details.", output.status.code())
         };
         Err(message)
     };
@@ -744,9 +790,9 @@ pub(super) fn build_export_video_with_ffmpeg(job: ExportVideoRenderJob<'_>) -> R
         || job.fit_mode.eq_ignore_ascii_case("free")
         || job.fit_mode.eq_ignore_ascii_case("crop");
     if wants_cover {
-        let primary_cover_filter = build_filter("cover");
+        let primary_cover_filter = build_filter("cover")?;
         if let Err(primary_error) = run_with_filter(&primary_cover_filter) {
-            let fallback_cover_filter = build_filter("cover-center");
+            let fallback_cover_filter = build_filter("cover-center")?;
             if let Err(fallback_error) = run_with_filter(&fallback_cover_filter) {
                 return Err(format!(
                     "{primary_error} | fallback(cover-center): {fallback_error}"
@@ -756,7 +802,7 @@ pub(super) fn build_export_video_with_ffmpeg(job: ExportVideoRenderJob<'_>) -> R
         return Ok(());
     }
 
-    let contain_filter = build_filter("contain");
+    let contain_filter = build_filter("contain")?;
     run_with_filter(&contain_filter)?;
 
     Ok(())
@@ -774,6 +820,31 @@ struct ExportMetadataItem {
     end: f64,
     output_path: String,
     cover_path: Option<String>,
+}
+
+// RAII guard for temporary files cleanup
+struct TempFileGuard {
+    paths: Vec<PathBuf>,
+}
+
+impl TempFileGuard {
+    fn new() -> Self {
+        Self { paths: Vec::new() }
+    }
+
+    fn track(&mut self, path: PathBuf) {
+        self.paths.push(path);
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        for path in &self.paths {
+            if path.exists() {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
 }
 
 pub(super) fn export_clips_batch_sync(
@@ -845,6 +916,7 @@ pub(super) fn export_clips_batch_sync(
 
     let mut artifacts: Vec<ClipExportArtifact> = Vec::with_capacity(request.tasks.len());
     let mut metadata_entries: Vec<ExportMetadataItem> = Vec::with_capacity(request.tasks.len());
+    let mut temp_files = TempFileGuard::new();
 
     for (index, task) in request.tasks.iter().enumerate() {
         let safe_clip_id = sanitize_file_stem(&task.clip_id);
@@ -913,6 +985,7 @@ pub(super) fn export_clips_batch_sync(
                 }
                 let subtitle_path =
                     ensure_unique_export_file_path(&run_dir, &format!("{clip_stem}-subs"), "ass");
+                temp_files.track(subtitle_path.clone());
                 let has_subtitles = write_clip_subtitle_ass_file(
                     &subtitle_payload,
                     &subtitle_path,

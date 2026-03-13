@@ -43,6 +43,23 @@ import { isTauriRuntime, invokeTauri } from "@/shared/tauri/runtime"
 
 export const RUNTIME_INSTALL_PROGRESS_EVENT = "runtime-tools://install-progress"
 
+// Timeout wrapper for backend calls
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  operation: string,
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`Operation '${operation}' timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      ),
+    ),
+  ])
+}
+
 export type DashboardDataPayload = {
   projects: Project[]
   newsFeed: NewsItem[]
@@ -643,7 +660,11 @@ export async function updateProjectViaBackend(
     ...patch,
     importedMediaPath: normalizeWindowsExtendedPath(patch.importedMediaPath),
   }
-  const project = await invokeTauri<Project>("patch_project", { projectId, patch: payload })
+  const project = await withTimeout(
+    invokeTauri<Project>("patch_project", { projectId, patch: payload }),
+    10000,
+    "updateProject",
+  )
   return normalizeProjectPathFields(project)
 }
 
@@ -869,14 +890,32 @@ export async function saveProjectWorkspaceState(
   projectId: string,
   state: WorkspacePersistedState,
 ): Promise<void> {
-  const serialized = writeLocalWorkspaceState(projectId, state) ?? JSON.stringify(state)
   if (!isTauriRuntime()) {
+    writeLocalWorkspaceState(projectId, state)
     return
   }
-  return invokeTauri<void>("save_project_workspace_state", {
-    projectId,
-    stateJson: serialized,
-  })
+  
+  const serialized = JSON.stringify(state)
+  
+  // Save to backend first (source of truth)
+  try {
+    await withTimeout(
+      invokeTauri<void>("save_project_workspace_state", {
+        projectId,
+        stateJson: serialized,
+      }),
+      15000,
+      "saveWorkspaceState",
+    )
+    
+    // Only update localStorage after backend success
+    writeLocalWorkspaceState(projectId, state)
+  } catch (error) {
+    // Fallback to localStorage only if backend fails
+    console.error("Failed to save workspace state to backend, using localStorage fallback:", error)
+    writeLocalWorkspaceState(projectId, state)
+    throw error
+  }
 }
 
 export async function loadProjectWorkspaceState(

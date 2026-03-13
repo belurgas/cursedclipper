@@ -67,27 +67,36 @@ pub fn open_path_in_file_manager(app: AppHandle, path: String) -> Result<String,
     }
 
     let candidate = PathBuf::from(trimmed);
-    let target = if candidate.is_file() {
-        candidate
+    
+    // Resolve symlinks to prevent directory traversal
+    let resolved_candidate = if candidate.exists() {
+        canonicalize_existing_path(&candidate)?
+    } else {
+        return Err("Specified path does not exist.".to_string());
+    };
+    
+    let target = if resolved_candidate.is_file() {
+        resolved_candidate
             .parent()
             .map(Path::to_path_buf)
             .ok_or_else(|| "Failed to resolve file directory.".to_string())?
     } else {
-        candidate
+        resolved_candidate
     };
 
     if !target.exists() {
         return Err("Specified path does not exist.".to_string());
     }
+    
+    // Canonicalize again after parent resolution
     let target = canonicalize_existing_path(&target)?;
 
     let settings = load_settings(&app)?;
-    let projects_root = resolve_projects_root_dir(&app, &settings)?;
-    let allowed_roots = [
-        canonicalize_existing_path(&projects_root)?,
-        canonicalize_existing_path(&app_data_dir(&app)?)?,
-        canonicalize_existing_path(&app_config_dir(&app)?)?,
-    ];
+    let projects_root = canonicalize_existing_path(&resolve_projects_root_dir(&app, &settings)?)?;
+    let app_data = canonicalize_existing_path(&app_data_dir(&app)?)?;
+    let app_config = canonicalize_existing_path(&app_config_dir(&app)?)?;
+    
+    let allowed_roots = [projects_root, app_data, app_config];
 
     let allowed = allowed_roots.iter().any(|root| target.starts_with(root));
     if !allowed {

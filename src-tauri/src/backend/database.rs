@@ -124,50 +124,61 @@ pub(super) fn ensure_project_optional_columns(connection: &Connection) -> Result
 pub(super) fn row_to_project(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
     let clips: i64 = row.get("clips")?;
     let duration_seconds: i64 = row.get("duration_seconds")?;
+    
+    // Safe conversion with overflow checks
+    let safe_clips = u32::try_from(clips.max(0))
+        .unwrap_or(u32::MAX)
+        .min(999_999);
+    let safe_duration = u32::try_from(duration_seconds.max(0))
+        .unwrap_or(u32::MAX)
+        .min(36_000); // Max 10 hours
+    
+    let safe_u64_conversion = |value: Option<i64>| -> Option<u64> {
+        value.and_then(|v| {
+            if v < 0 {
+                Some(0)
+            } else {
+                u64::try_from(v).ok()
+            }
+        })
+    };
+    
+    let safe_u32_conversion = |value: Option<i64>| -> Option<u32> {
+        value.and_then(|v| {
+            if v < 0 {
+                Some(0)
+            } else {
+                u32::try_from(v).ok().map(|val| val.min(36_000))
+            }
+        })
+    };
+    
     Ok(Project {
         id: row.get("id")?,
         name: row.get("name")?,
         description: row.get("description")?,
         updated_at: row.get("updated_at")?,
-        clips: clips.max(0) as u32,
-        duration_seconds: duration_seconds.max(0) as u32,
+        clips: safe_clips,
+        duration_seconds: safe_duration,
         status: row.get("status")?,
         source_type: row.get("source_type")?,
         source_label: row.get("source_label")?,
         source_url: row.get("source_url")?,
         source_status: row.get("source_status")?,
         source_uploader: row.get("source_uploader")?,
-        source_duration_seconds: row
-            .get::<_, Option<i64>>("source_duration_seconds")?
-            .map(|value| value.max(0) as u32),
+        source_duration_seconds: safe_u32_conversion(row.get("source_duration_seconds")?),
         source_thumbnail: row.get("source_thumbnail")?,
-        source_view_count: row
-            .get::<_, Option<i64>>("source_view_count")?
-            .map(|value| value.max(0) as u64),
-        source_view_count_previous: row
-            .get::<_, Option<i64>>("source_view_count_previous")?
-            .map(|value| value.max(0) as u64),
-        source_like_count: row
-            .get::<_, Option<i64>>("source_like_count")?
-            .map(|value| value.max(0) as u64),
-        source_like_count_previous: row
-            .get::<_, Option<i64>>("source_like_count_previous")?
-            .map(|value| value.max(0) as u64),
-        source_comment_count: row
-            .get::<_, Option<i64>>("source_comment_count")?
-            .map(|value| value.max(0) as u64),
-        source_comment_count_previous: row
-            .get::<_, Option<i64>>("source_comment_count_previous")?
-            .map(|value| value.max(0) as u64),
+        source_view_count: safe_u64_conversion(row.get("source_view_count")?),
+        source_view_count_previous: safe_u64_conversion(row.get("source_view_count_previous")?),
+        source_like_count: safe_u64_conversion(row.get("source_like_count")?),
+        source_like_count_previous: safe_u64_conversion(row.get("source_like_count_previous")?),
+        source_comment_count: safe_u64_conversion(row.get("source_comment_count")?),
+        source_comment_count_previous: safe_u64_conversion(row.get("source_comment_count_previous")?),
         source_upload_date: row.get("source_upload_date")?,
         source_channel_id: row.get("source_channel_id")?,
         source_channel_url: row.get("source_channel_url")?,
-        source_channel_followers: row
-            .get::<_, Option<i64>>("source_channel_followers")?
-            .map(|value| value.max(0) as u64),
-        source_channel_followers_previous: row
-            .get::<_, Option<i64>>("source_channel_followers_previous")?
-            .map(|value| value.max(0) as u64),
+        source_channel_followers: safe_u64_conversion(row.get("source_channel_followers")?),
+        source_channel_followers_previous: safe_u64_conversion(row.get("source_channel_followers_previous")?),
         source_metrics_updated_at: row.get("source_metrics_updated_at")?,
         imported_media_path: row.get("imported_media_path")?,
     })

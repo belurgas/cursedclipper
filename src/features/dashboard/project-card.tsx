@@ -108,8 +108,8 @@ export function ProjectCard({ project, onOpen, onDelete }: ProjectCardProps) {
       transition={{ duration: 0.32, ease: "easeOut" }}
       className="h-full"
     >
-      <Card className="glass-panel group h-full overflow-hidden border-white/12 bg-white/5 transition-[background-color,border-color] duration-200 hover:border-white/20 hover:bg-white/6">
-        <CardHeader className="space-y-3">
+      <Card className="glass-panel group h-full overflow-hidden border-white/12 bg-white/5 transition-[background-color,border-color] duration-200 hover:border-white/20 hover:bg-white/6 will-change-[background-color,border-color]">
+        <CardHeader className="space-y-3 pb-0">
           <div className="flex items-start justify-between gap-2">
             <CardTitle className="line-clamp-2 text-sm font-semibold text-zinc-100">
               {project.name}
@@ -129,7 +129,7 @@ export function ProjectCard({ project, onOpen, onDelete }: ProjectCardProps) {
             {project.description}
           </p>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-3">
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="rounded-lg border border-white/10 bg-black/20 p-2">
               <p className="text-zinc-500">{t("projectCard.duration")}</p>

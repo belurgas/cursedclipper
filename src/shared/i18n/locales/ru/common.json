@@ -319,6 +319,8 @@
     "validationBriefMin": "Добавьте короткий бриф (не менее 12 символов), чтобы ИИ задал контекст.",
     "validationSelectLocalFile": "Выберите видеофайл с устройства.",
     "validationSelectYoutubeFormat": "Проверьте ссылку и выберите формат для импорта.",
+    "validationFfmpegRequired": "FFmpeg и FFprobe необходимы для обработки видео. Установите их в Настройках.",
+    "validationYtdlpRequired": "yt-dlp необходим для скачивания с YouTube. Установите его в Настройках.",
     "pasteYoutubeUrl": "Вставьте ссылку на YouTube.",
     "probeFailed": "Не удалось получить форматы.",
     "localFileFallback": "Локальный файл",
